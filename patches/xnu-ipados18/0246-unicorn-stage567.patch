@@ -1,0 +1,58 @@
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+index 77b178c..fe5232a 100644
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -212,6 +212,29 @@ extern void configure_late_apple_regs(bool cold_boot);
+ #define dyldLogFunc(msg, ...)
+ #include <mach/dyld_kernel_fixups.h>
+ 
++/*
++ * Unicorn bring-up breadcrumb: paint a 32x32 square straight into the
++ * framebuffer through its physical address.  Only safe while the kernel still
++ * runs on the identity map (i.e. before arm_vm_init switches tables).
++ * Geometry is this board's: base 0xB8000000, 1440x3200, 5760 bytes per row.
++ */
++static void
++unicorn_stage(unsigned int slot, unsigned int argb)
++{
++	volatile unsigned int *fb = (volatile unsigned int *)(unsigned long)0xB8000000UL;
++	unsigned int stride = 5760u / 4u;
++	unsigned int y = 240u + slot * 80u;
++	unsigned int dy, dx;
++
++	for (dy = 0u; dy < 32u; dy++) {
++		for (dx = 0u; dx < 32u; dx++) {
++			fb[(y + dy) * stride + 64u + dx] = argb;
++		}
++	}
++	__asm__ volatile ("dsb sy" ::: "memory");
++}
++
++
+ extern uint32_t __thread_starts_sect_start[] __asm("section$start$__TEXT$__thread_starts");
+ extern uint32_t __thread_starts_sect_end[]   __asm("section$end$__TEXT$__thread_starts");
+ #if defined(HAS_APPLE_PAC)
+@@ -381,6 +404,7 @@ arm_init(
+ #endif /* defined(HAS_APPLE_PAC) */
+ 
+ 	PE_init_platform(FALSE, args); /* Get platform expert set up */
++	unicorn_stage(5, 0xFF00FF00); /* PE_init_platform returned */
+ 
+ #if __arm64__
+ 	configure_timer_apple_regs();
+@@ -404,6 +428,7 @@ arm_init(
+ 	}
+ 
+ 	platform_stall_panic_or_spin(PLATFORM_STALL_XNU_LOCATION_ARM_INIT);
++	unicorn_stage(6, 0xFFFF8000); /* past chosen/stall */
+ 
+ 	chosen = NULL; // Force a re-lookup later on since VM addresses are not final at this point
+ 	dt_entry_size = 0;
+@@ -575,6 +600,7 @@ arm_init(
+ 	gDramSize = *dram_size;
+ 	pmap_first_pnum = (ppnum_t)atop(gDramBase);
+ 
++	unicorn_stage(7, 0xFF8000FF); /* about to call arm_vm_init */
+ 	arm_vm_init(xmaxmem, args);
+ 
+ #if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE

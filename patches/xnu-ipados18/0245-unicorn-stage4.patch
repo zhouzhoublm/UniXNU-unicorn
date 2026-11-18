@@ -1,0 +1,14 @@
+diff --git a/osfmk/arm64/start.s b/osfmk/arm64/start.s
+index 9766beb..aa6c549 100644
+--- a/osfmk/arm64/start.s
++++ b/osfmk/arm64/start.s
+@@ -1030,6 +1030,9 @@ common_start:
+ 	mov	lr, x21
+ #endif
+ 
++	// Unicorn breadcrumb: common_start finished, about to return to arm_init()
++	K60_FB_STAGE 4, 0xFF00FF00
++
+ 	// Return to arm_init()
+ 	ret
+ 

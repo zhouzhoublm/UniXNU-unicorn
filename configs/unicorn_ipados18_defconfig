@@ -1,0 +1,90 @@
+# UniXNU Pong iPadOS 18 / Darwin 24 initial board bring-up.
+# The boot packager defaults to all 8 SM8475 CPU nodes; PSCI starts them.
+# --cpus 1 retains the isolated bring-up option. CPU composition is selected
+# separately by pong_ui_software=1 and the matching 22H374 runtime adapter.
+# Owner SystemCryptex remains mounted read-only at the path selected by the XNU hook.
+CONFIG_XNU_ADRENO_FIRMWARE_PROBE=n
+CONFIG_XNU_ADRENO_PM4_PROBE=n
+CONFIG_XNU_ARMCPU=y
+CONFIG_XNU_ARMVIRT_PLATFORM=n
+CONFIG_XNU_ARM_DT_PLATFORM=y
+CONFIG_XNU_BOOT_PROGRESS=n
+CONFIG_XNU_BUILD_WERROR=n
+CONFIG_XNU_CONSTANT_UPLOADS_PROBE=n
+CONFIG_XNU_CRYPTO_BOOTSTRAP="prelinked"
+CONFIG_XNU_DT_PANIC_REGION=y
+CONFIG_XNU_NATIVE_ADRENO=n
+CONFIG_XNU_NATIVE_AES=n
+CONFIG_XNU_NATIVE_AIR_INIT=n
+CONFIG_XNU_NATIVE_ARCH_TIMER=y
+CONFIG_XNU_NATIVE_CS_HASH_CACHE=y
+CONFIG_XNU_NATIVE_LEGACY_DISPLAY=n
+CONFIG_XNU_NATIVE_MOBILE_DISPLAY=n
+CONFIG_XNU_NATIVE_OFFLINE_GPU=n
+CONFIG_XNU_NATIVE_PAN=y
+CONFIG_XNU_NATIVE_RAM_BLOCK=n
+CONFIG_XNU_NATIVE_TRUST_CACHE=n
+CONFIG_XNU_NATIVE_UFS=y
+CONFIG_XNU_NATIVE_VIRTIO_BLOCK=n
+CONFIG_XNU_NATIVE_VIRTIO_CONSOLE=n
+CONFIG_XNU_OWNER_BOOT_MANIFEST=n
+CONFIG_XNU_OWNER_CACHE_CARRIER=n
+CONFIG_XNU_OWNER_CACHE_CARRIER_WRONG_UUID=n
+CONFIG_XNU_OWNER_CACHE_MOUNT=y
+CONFIG_XNU_OWNER_CACHE_STARTUP=y
+CONFIG_XNU_OWNER_CRYPTEX_FILES=y
+CONFIG_XNU_OWNER_DATA_MOUNT=y
+CONFIG_XNU_OWNER_DATA_UFS=y
+CONFIG_XNU_OWNER_ROOT_VOLUME_UUID=""
+CONFIG_XNU_OWNER_DATA_VOLUME_UUID=""
+CONFIG_XNU_OWNER_CACHE_VOLUME_UUID=""
+CONFIG_XNU_OWNER_ROOT_AUDIT=n
+CONFIG_XNU_OWNER_ROOT_TRUST=n
+CONFIG_XNU_OWNER_UNION_SYSTEMOS=n
+CONFIG_XNU_PONG_APFS_DEBUG=y
+CONFIG_XNU_PONG_ADRENO_PLATFORM=n
+CONFIG_XNU_PONG_BACKLIGHT=n
+CONFIG_XNU_PONG_POWER=y
+CONFIG_XNU_PONG_EARLY_TRACE=n
+CONFIG_XNU_PONG_LEGACY_UACCESS=n
+CONFIG_XNU_PONG_RAMOOPS_CONSOLE=y
+CONFIG_XNU_PONG_VOLATILE_PANIC_LOG=y
+CONFIG_XNU_SHENG_PMGR=n
+CONFIG_XNU_SMMU4K_PROBE=n
+CONFIG_XNU_SOURCE_CORECRYPTO14=n
+CONFIG_XNU_SOURCE_MOCKFS=n
+CONFIG_XNU_SOURCE_PTHREAD=n
+CONFIG_XNU_TRUST_CACHE_RUNTIME=n
+CONFIG_XNU_VERIFIED_ROOT_PROBE=n
+CONFIG_XNU_ZONE_PGZ_ALIGNMENT_PROBE=n
+
+CONFIG_XNU_PONG_WIFI=n
+
+# 2026-11-05: WiFi（ath11k）与背光需要外部 Linux 源码树（PONG_WIFI_SOURCE / sheng），
+# 首次上机（M3）不需要，先在 CI 里关掉；M6 接外设时再打开并补来源。
+
+# XNU_NATIVE_UFS=1 + OWNER_CACHE_MOUNT=1 + (OWNER_UNION_SYSTEMOS 或 OWNER_CRYPTEX_FILES)=1，
+# 那是 M5 挂 SystemOS 时才需要的组合；首次上机只看内核能不能起来。
+
+# 2026-11-05: 与 pong/thor 官方 defconfig 对齐——crypto 走 IPSW kernelcache 的 prelinked 组件，
+# 不用源码 corecrypto14（后者要求 build/corecrypto-2023/libcorecrypto_kernel_noasm-namespaced.a，
+# 那条链只有 pong 作者本机具备）。因此 prelink 步骤是必需的。
+
+# 2026-11-05: M3 阶段关闭 Adreno 平台包。它要求 device/out/ipados18/firmware/adreno730/*.bin
+# （从本机 vendor 分区提取的 GPU 固件），首次上机用不到；M4 接 GPU 时再补采集并打开。
+
+# 2026-11-05: OWNER_* 与 pong 官方 defconfig 对齐（都置 y）。
+# 链接阶段缺的 _native_owner_cache_* 符号正是这些实现提供的；
+# 三个卷 UUID（OS/SystemOS/Data）由 kit 构建时用 volume-layout.json 注入。
+
+# 2026-11-05: 与 pong 的 CI 变体（pong_ipados18_ci_defconfig）对齐：
+# 本文件现在与它逐键相同，只有 ADRENO_PLATFORM / WIFI / BACKLIGHT 三项保持 n
+#（分别缺本机 GPU 固件与外部 Linux 源码树），这三项在 M4/M6 补上采集后再打开。
+
+# 打开它会额外编 build/pong-power/libPongPower.a；本轮链接时报的
+# _pong_smmu_lease_lock/_unlock 就是它该提供的，说明该归档没有真正把
+# PongPlatformResources.cpp 编进去——留到 M4 接电源管理时再查。
+
+# 2026-11-05: PONG_POWER 打开，并且 build-pong-power-native.py 的源列表补上了
+# PongPlatformResources.cpp —— 它才是 pong_smmu_lease_lock/unlock 的定义处，
+# 原列表漏了它，导致 NativeUfs 的 weak 引用链接不上。
