@@ -2,12 +2,12 @@ name: firmware-unicorn
 
 # 用 GitHub Actions 的 ubuntu runner 编 unicornPkg 固件，产出 SILICIUM_UEFI.fd。
 #
-# 为什么 checkout 之后还要重新填充子模块：uefi-unicorn 上游把 Mu_Basecore /
+# 为什么 checkout 之后还要重建子模块：uefi-unicorn 上游把 Mu_Basecore /
 # Common/Mu / Common/Mu_OEM_Sample / Silicium-ACPI / Binaries / openssl 六个
 # 子模块提交成了指向作者本机 /root/uefi-unicorn/... 的符号链接（git mode
-# 120000），在任何 CI 上都是断链。这里按 .gitmodules 的 URL/分支用 codeload
-# tarball 重建（openssl 固定 commit 67b5686b4419b4cb8caa502711c41815f5279751）。
-# 注意：这些分支不是上游 pin，产物以 workflow 运行时的源码为准。
+# 120000），在任何 CI 上都是断链。这里按 .gitmodules 的 URL/分支用真 git clone
+# 重建（stuart 校验子模块必须是合法 git 仓库），openssl 固定 commit
+# 67b5686b4419b4cb8caa502711c41815f5279751。
 #
 # 产物用法：下载 SILICIUM_UEFI.fd 后放到 uefi-unicorn/Build/unicornPkg/
 # RELEASE_CLANGPDB/FV/，再在本地跑 scripts/make-m3-image.sh 打包 boot 镜像。
@@ -66,6 +66,31 @@ jobs:
         run: |
           export CI_BUILD=true
           bash ./setup_env.sh -p apt
+
+      - name: adapt AsmMacroLib patch to release/202608
+        working-directory: uefi-unicorn
+        # 上游 release/202608 给 AsmMacroLib.h 加了 #ifdef __ELF__（PE 路径已用
+        # .text$ 解决段合并问题），旧补丁 hunk 上下文漂移打不上。按上游新结构
+        # 重生成等效补丁（__ELF__ 分支 .text. ## Name -> .text，保持作者原意）。
+        # 其余 5 个补丁对当前 HEAD 均可干净应用（本地已验证）。
+        run: |
+          set -euo pipefail
+          printf '%s' \
+            'ZGlmZiAtLWdpdCBhL01kZVBrZy9JbmNsdWRlL0FBcmNoNjQvQXNtTWFjcm9MaWIuaCBiL01kZVBrZy9JbmNsdWRlL0FBcmNo' \
+            'NjQvQXNtTWFjcm9MaWIuaAppbmRleCA0MGNiZDUxLi5lYmE5OTVlIDEwMDY0NAotLS0gYS9NZGVQa2cvSW5jbHVkZS9BQXJj' \
+            'aDY0L0FzbU1hY3JvTGliLmgKKysrIGIvTWRlUGtnL0luY2x1ZGUvQUFyY2g2NC9Bc21NYWNyb0xpYi5oCkBAIC00MCwxMCAr' \
+            'NDAsMTAgQEAKIC8vIENMQU5HUERCIGRvZXMgbm90IG1lcmdlIEVMRiBzdHlsZSBzZWN0aW9ucyB3aXRoIC50ZXh0LjxuYW1l' \
+            'PiBhbnkgbG9uZ2VyLA0KIC8vIHdoaWNoIGdyZWF0bHkgYWZmZWN0cyB0aGUgYmluYXJ5IHNpemUsIHNvIHdlIG5lZWQgdG8g' \
+            'bmFtZSBzZWN0aW9ucyBpbiBhIFBFIGZyaWVuZGx5IHdheQ0KICNpZmRlZiBfX0VMRl9fDQotI2RlZmluZSBBU01fRlVOQyhO' \
+            'YW1lKSAgX0FTTV9GVU5DKEFTTV9QRlgoTmFtZSksIC50ZXh0LiAjIyBOYW1lKQ0KKyNkZWZpbmUgQVNNX0ZVTkMoTmFtZSkg' \
+            'IF9BU01fRlVOQyhBU01fUEZYKE5hbWUpLCAudGV4dCkNCiANCiAjZGVmaW5lIEFTTV9GVU5DX0FMSUdOKE5hbWUsIEFsaWdu' \
+            'KSAgXA0KLSAgX0FTTV9GVU5DX0FMSUdOKEFTTV9QRlgoTmFtZSksIC50ZXh0LiAjIyBOYW1lLCBBbGlnbikNCisgIF9BU01f' \
+            'RlVOQ19BTElHTihBU01fUEZYKE5hbWUpLCAudGV4dCwgQWxpZ24pDQogI2Vsc2UNCiAjZGVmaW5lIEFTTV9GVU5DKE5hbWUp' \
+            'ICBfQVNNX0ZVTkMoQVNNX1BGWChOYW1lKSwgLnRleHQkICMjIE5hbWUpDQogDQo=' \
+            | base64 -d > Resources/MuPatches/AsmMacroLib.patch
+          cd Mu_Basecore
+          git apply --check ../Resources/MuPatches/AsmMacroLib.patch
+          echo "AsmMacroLib.patch (adapted) applies clean"
 
       - name: build unicornPkg
         working-directory: uefi-unicorn
