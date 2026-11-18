@@ -54,6 +54,10 @@ jobs:
             echo "  $path <- $repo@$ref ($(git -C "$path" rev-parse --short HEAD))"
           }
           clone Mu_Basecore microsoft/mu_basecore release/202608
+          # Mu_Basecore has its own nested submodules (mipisyst, libfdt, libspdm,
+          # brotli, ...) — MdePkg.dec includes headers from MipiSysTLib/mipisyst,
+          # so without these the EDK2 build dies at "File/directory not found".
+          git -C Mu_Basecore submodule update --init --recursive --depth 1
           clone Common/Mu microsoft/mu_plus release/202608
           clone Common/Mu_OEM_Sample microsoft/mu_oem_sample release/202608
           clone Silicium-ACPI Project-Silicium/Silicium-ACPI main
