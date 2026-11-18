@@ -96,6 +96,33 @@ jobs:
           git apply --check ../Resources/MuPatches/AsmMacroLib.patch
           echo "AsmMacroLib.patch (adapted) applies clean"
 
+      - name: detach AdvLogDxe from AdvancedLogger DebugLib
+        working-directory: uefi-unicorn
+        # Round-4 link failure: duplicate symbol AdvancedLoggerWrite. AdvLogDxe
+        # vendors the DxeCore-instance sources itself (AdvancedLoggerCommon.c
+        # defines the plain writer), but as a DXE_DRIVER its DebugLib resolves
+        # to BaseDebugLibAdvancedLogger, which requires the Dxe/AdvancedLoggerLib
+        # instance — whose own AdvancedLoggerWrite then collides. Per-component
+        # override gives AdvLogDxe a null DebugLib; the vendored DxeCore instance
+        # still installs the protocol for every other DXE driver.
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path('Platforms/Xiaomi/unicornPkg/unicorn.dsc')
+          t = p.read_text()
+          old = '  unicornPkg/Drivers/AdvLogDxe/AdvLogDxe.inf\n'
+          new = (
+            '  unicornPkg/Drivers/AdvLogDxe/AdvLogDxe.inf {\n'
+            '    <LibraryClasses>\n'
+            '      DebugLib|MdePkg/Library/BaseDebugLibNull/BaseDebugLibNull.inf\n'
+            '  }\n'
+          )
+          assert old in t, 'AdvLogDxe component entry not found in unicorn.dsc'
+          p.write_text(t.replace(old, new, 1))
+          print('unicorn.dsc: AdvLogDxe DebugLib detached')
+          PY
+
       - name: build unicornPkg
         working-directory: uefi-unicorn
         run: |
