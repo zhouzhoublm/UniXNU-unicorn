@@ -37,27 +37,28 @@ jobs:
           ref: master
           path: uefi-unicorn
 
-      - name: replace broken submodule symlinks with upstream tarballs
+      - name: replace broken submodule symlinks with real git clones
         working-directory: uefi-unicorn
         run: |
           set -euo pipefail
-          fill () {
-            local path="$1" repo="$2" ref="$3" name
-            name="$(basename "$repo")-$(echo "$ref" | tr '/' '-').tar.gz"
+          clone () {
+            local path="$1" repo="$2" ref="$3"
             rm -f "$path"
-            mkdir -p "$path"
-            curl -L --retry 3 -sS -o "$name" \
-              "https://codeload.github.com/${repo}/tar.gz/${ref}"
-            tar -xzf "$name" -C "$path" --strip-components=1
-            rm -f "$name"
-            echo "  $path <- $repo@$ref ($(find "$path" -type f | wc -l) files)"
+            if [[ "$ref" =~ ^[0-9a-f]{40}$ ]]; then
+              # a specific commit: blobless clone then detach
+              git clone -q --filter=blob:none "https://github.com/${repo}.git" "$path"
+              git -C "$path" checkout -q --detach "$ref"
+            else
+              git clone -q --depth 1 --branch "$ref" "https://github.com/${repo}.git" "$path"
+            fi
+            echo "  $path <- $repo@$ref ($(git -C "$path" rev-parse --short HEAD))"
           }
-          fill Mu_Basecore microsoft/mu_basecore release/202608
-          fill Common/Mu microsoft/mu_plus release/202608
-          fill Common/Mu_OEM_Sample microsoft/mu_oem_sample release/202608
-          fill Silicium-ACPI Project-Silicium/Silicium-ACPI main
-          fill Binaries Project-Silicium/Device-Binaries main
-          fill Silicon/Silicium/OpensslPkg/Library/OpensslLib/openssl \
+          clone Mu_Basecore microsoft/mu_basecore release/202608
+          clone Common/Mu microsoft/mu_plus release/202608
+          clone Common/Mu_OEM_Sample microsoft/mu_oem_sample release/202608
+          clone Silicium-ACPI Project-Silicium/Silicium-ACPI main
+          clone Binaries Project-Silicium/Device-Binaries main
+          clone Silicon/Silicium/OpensslPkg/Library/OpensslLib/openssl \
             openssl/openssl 67b5686b4419b4cb8caa502711c41815f5279751
 
       - name: install build environment
