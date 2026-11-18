@@ -1,8 +1,8 @@
 diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
+index 1b30468..049da0e 100644
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
-@@ -73,5 +73,78 @@
- 	__asm__ volatile ("dsb sy" ::: "memory");
+@@ -73,6 +73,82 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
  }
  
  
@@ -37,6 +37,7 @@ diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
 +					if (pte & ARM_TTE_VALID) {
 +						unicorn_stage_vm(slot_l3, color);
 +					}
++				}
 +			}
 +		}
 +	}
@@ -79,10 +80,16 @@ diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
 +	}
 +	__asm__ volatile ("dsb sy" ::: "memory");
 +}
++
++
  #if __ARM_KERNEL_PROTECT__
-@@ -2395,4 +2483,5 @@
+ /*
+  * If we want to support __ARM_KERNEL_PROTECT__, we need a sufficient amount of
+@@ -2447,6 +2523,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+ 	arm_vm_physmap_init(args);
  	unicorn_stage_vm(12, 0xFF7F00FF); /* arm_vm_physmap_init returned */
  	unicorn_stage_vm(10, 0xFFFF00FF); /* bootstrap tables built, about to switch */
 +	unicorn_ttbr_probe();
  	set_mmu_ttb_alternate(cpu_ttep & TTBR_BADDR_MASK);
  	unicorn_stage_vm(13, 0xFFFF00A5); /* TTBR1 installed */
+ 
