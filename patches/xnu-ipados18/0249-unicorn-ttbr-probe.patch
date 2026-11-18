@@ -1,0 +1,88 @@
+diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
+--- a/osfmk/arm64/arm_vm_init.c
++++ b/osfmk/arm64/arm_vm_init.c
+@@ -73,5 +73,78 @@
+ 	__asm__ volatile ("dsb sy" ::: "memory");
+ }
+ 
+ 
++/*
++ * Unicorn pre-switch probe: walk the freshly built TTBR1 tables (cpu_tte)
++ * for the two addresses the switch depends on (the code it returns into and
++ * the stack it unwinds through), and characterize TCR_EL1.  One breadcrumb
++ * per check; an absent square means that check failed.  Runs strictly before
++ * set_mmu_ttb_alternate(), while the boot-time TTBR1 is still installed, so
++ * every probe executes in a regime that can still paint the framebuffer.
++ */
++static void
++unicorn_probe_walk(unsigned long va, unsigned int slot_l1, unsigned int slot_l2,
++    unsigned int slot_l3, unsigned int color)
++{
++	unsigned long		tte;
++	unsigned long		pte;
++	unsigned long		*l2;
++	unsigned long		*l3;
++
++	tte = cpu_tte[(va & ARM_TT_L1_INDEX_MASK) >> ARM_TT_L1_SHIFT];
++	if (tte & ARM_TTE_VALID) {
++		unicorn_stage_vm(slot_l1, color);
++		if ((tte & ARM_TTE_TYPE_MASK) == ARM_TTE_TYPE_TABLE) {
++			l2		= (unsigned long *)phystokv(tte & ARM_TTE_TABLE_MASK);
++			tte	= l2[(va & ARM_TT_L2_INDEX_MASK) >> ARM_TT_L2_SHIFT];
++			if (tte & ARM_TTE_VALID) {
++				unicorn_stage_vm(slot_l2, color);
++				if ((tte & ARM_TTE_TYPE_MASK) == ARM_TTE_TYPE_TABLE) {
++					l3		= (unsigned long *)phystokv(tte & ARM_TTE_TABLE_MASK);
++					pte	= l3[(va & ARM_TT_L3_INDEX_MASK) >> ARM_TT_L3_SHIFT];
++					if (pte & ARM_TTE_VALID) {
++						unicorn_stage_vm(slot_l3, color);
++					}
++			}
++		}
++	}
++	__asm__ volatile ("dsb sy" ::: "memory");
++}
++
++static void
++unicorn_ttbr_probe(void)
++{
++	void					*probe_pc = __builtin_return_address(0);
++	void					*probe_fp = __builtin_frame_address(0);
++	unsigned long	tcr;
++	unsigned long	t1sz;
++	unsigned int		i;
++
++	/* where the switch returns into: kernelcache text */
++	unicorn_probe_walk((unsigned long)probe_pc, 14, 15, 16, 0xFF00FFFF);
++	/* the stack the switch unwinds through */
++	unicorn_probe_walk((unsigned long)probe_fp, 17, 18, 19, 0xFF00FF00);
++
++	__asm__ volatile ("mrs %0, tcr_el1" : "=r" (tcr));
++
++	/* TG1 (bits 31:30): this 4K-native build expects 4KB (2) */
++	if (((tcr >> 30) & 3ULL) == TCR_TG1_GRANULE_4KB) {
++		unicorn_stage_vm(20, 0xFFFFFFFF);
++	}
++	t1sz = (tcr >> 16) & 0x3FULL;
++	if (t1sz == T1SZ_BOOT) {
++		unicorn_stage_vm(21, 0xFF8080FF);
++	}
++	/* the switch installs a distinct table, not the boot tables again */
++	if (cpu_ttep != kvtophys((vm_offset_t)&bootstrap_pagetables)) {
++		unicorn_stage_vm(22, 0xFFFF00FF);
++	}
++	/* T1SZ bits 0..5, one square per set bit (slots 23..28) */
++	for (i = 0; i < 6; i++) {
++		if (t1sz & (1ULL << i)) {
++			unicorn_stage_vm(23 + i, 0xFF7F7F7F);
++		}
++	}
++	__asm__ volatile ("dsb sy" ::: "memory");
++}
+ #if __ARM_KERNEL_PROTECT__
+@@ -2395,4 +2483,5 @@
+ 	unicorn_stage_vm(12, 0xFF7F00FF); /* arm_vm_physmap_init returned */
+ 	unicorn_stage_vm(10, 0xFFFF00FF); /* bootstrap tables built, about to switch */
++	unicorn_ttbr_probe();
+ 	set_mmu_ttb_alternate(cpu_ttep & TTBR_BADDR_MASK);
+ 	unicorn_stage_vm(13, 0xFFFF00A5); /* TTBR1 installed */
