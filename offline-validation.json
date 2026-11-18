@@ -1,0 +1,210 @@
+{
+  "generated": "2026-11-18T14:16:38.121041+08:00",
+  "summary": {
+    "error": 0,
+    "warn": 1,
+    "pass": 39
+  },
+  "findings": [
+    {
+      "level": "PASS",
+      "check": "schema",
+      "message": "board.toml uses format 2 (schema_version = 2)"
+    },
+    {
+      "level": "PASS",
+      "check": "identity",
+      "message": "board.name = 'unicorn' (expected 'unicorn')"
+    },
+    {
+      "level": "PASS",
+      "check": "identity",
+      "message": "board.soc = 'SM8475' (expected 'SM8475')"
+    },
+    {
+      "level": "PASS",
+      "check": "identity",
+      "message": "board.soc_source = 'sm8475' (expected 'sm8475')"
+    },
+    {
+      "level": "PASS",
+      "check": "identity",
+      "message": "board.os_profile = 'ipados-18.7.10-22H374' (expected 'ipados-18.7.10-22H374')"
+    },
+    {
+      "level": "PASS",
+      "check": "userdata",
+      "message": "OS/SystemOS/Data window is 64 GiB at the tail of userdata"
+    },
+    {
+      "level": "PASS",
+      "check": "facts",
+      "message": "verified-facts.json contains 13 measured values (reference: 13)"
+    },
+    {
+      "level": "PASS",
+      "check": "facts",
+      "message": "dts.dram_size: contains '12 GiB'"
+    },
+    {
+      "level": "PASS",
+      "check": "facts",
+      "message": "dts.ufs_spi: contains '265'"
+    },
+    {
+      "level": "PASS",
+      "check": "facts",
+      "message": "dts.ufs_smmu_sid: contains '0xe0'"
+    },
+    {
+      "level": "PASS",
+      "check": "facts",
+      "message": "dts.pon_ppid: contains '0x13'"
+    },
+    {
+      "level": "PASS",
+      "check": "facts",
+      "message": "dts.touch_compatible: contains 'FocalTech'"
+    },
+    {
+      "level": "PASS",
+      "check": "facts",
+      "message": "adt.owned_memory_size: contains '4 GiB'"
+    },
+    {
+      "level": "PASS",
+      "check": "dts",
+      "message": "12 GiB DRAM base: found"
+    },
+    {
+      "level": "PASS",
+      "check": "dts",
+      "message": "touch SPI base: found"
+    },
+    {
+      "level": "PASS",
+      "check": "dts",
+      "message": "touch IRQ GPIO 21: found"
+    },
+    {
+      "level": "PASS",
+      "check": "dts",
+      "message": "touch RST GPIO 20: found"
+    },
+    {
+      "level": "PASS",
+      "check": "dts",
+      "message": "PON PPID 0x13: found"
+    },
+    {
+      "level": "PASS",
+      "check": "dts",
+      "message": "volume-up GPIO 6: found"
+    },
+    {
+      "level": "PASS",
+      "check": "dts",
+      "message": "UFS SMMU SID: found"
+    },
+    {
+      "level": "PASS",
+      "check": "dts",
+      "message": "UFS SPI 265: found"
+    },
+    {
+      "level": "PASS",
+      "check": "dts",
+      "message": "QCA6490 PCIe RC0: found"
+    },
+    {
+      "level": "WARN",
+      "check": "touch",
+      "message": "DTS declares max-x/max-y = 1440/3200; the live FTS axis contract is 14400x32000 (10x fixed point). Keep panel pixels for UI, raw axes for the driver."
+    },
+    {
+      "level": "PASS",
+      "check": "memory",
+      "message": "DTS carries all 38 measured reserved-memory entries"
+    },
+    {
+      "level": "PASS",
+      "check": "inheritance",
+      "message": "0 inherited (unmeasured) values remain in dts/unicorn.dts; each must be closed with a device dump before enabling the matching driver"
+    },
+    {
+      "level": "PASS",
+      "check": "defconfig",
+      "message": "CONFIG_XNU_ARMCPU=y (SM8475 GIC+timer interrupt provider)"
+    },
+    {
+      "level": "PASS",
+      "check": "defconfig",
+      "message": "CONFIG_XNU_NATIVE_UFS=y (native UFS root)"
+    },
+    {
+      "level": "PASS",
+      "check": "defconfig",
+      "message": "CONFIG_XNU_ARM_DT_PLATFORM=y (Apple-format device tree platform expert)"
+    },
+    {
+      "level": "PASS",
+      "check": "patches",
+      "message": "patch series device:migration/format2/arch-darwin24.series: present"
+    },
+    {
+      "level": "PASS",
+      "check": "patches",
+      "message": "patch series soc:patches/xnu/series: present"
+    },
+    {
+      "level": "PASS",
+      "check": "patches",
+      "message": "patch series os:patches/xnu/series: present"
+    },
+    {
+      "level": "PASS",
+      "check": "patches",
+      "message": "patch series device:patches/xnu-ipados18/series: present"
+    },
+    {
+      "level": "PASS",
+      "check": "docs",
+      "message": "README_EN.md describes unicorn"
+    },
+    {
+      "level": "PASS",
+      "check": "lba-regression",
+      "message": "no stale LBA literals in active configuration and docs"
+    },
+    {
+      "level": "PASS",
+      "check": "deliverable",
+      "message": "docs/FEASIBILITY.md: present"
+    },
+    {
+      "level": "PASS",
+      "check": "deliverable",
+      "message": "docs/BINDING-PLAN.md: present"
+    },
+    {
+      "level": "PASS",
+      "check": "deliverable",
+      "message": "docs/BUILD-RUNBOOK.md: present"
+    },
+    {
+      "level": "PASS",
+      "check": "deliverable",
+      "message": "scripts/collect-device.sh: present"
+    },
+    {
+      "level": "PASS",
+      "check": "deliverable",
+      "message": "scripts/boot-observe.ps1: present"
+    },
+    {
+      "level": "INFO",
+      "check": "record",
+      "message": "porting.toml tracks 14 areas: device-verified=2, implemented=4, planned=7, verified=1"
+    }
+  ]
+}

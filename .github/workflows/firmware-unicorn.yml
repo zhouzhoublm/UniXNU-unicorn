@@ -1,0 +1,86 @@
+name: firmware-unicorn
+
+# 用 GitHub Actions 的 ubuntu runner 编 unicornPkg 固件，产出 SILICIUM_UEFI.fd。
+#
+# 为什么 checkout 之后还要重新填充子模块：uefi-unicorn 上游把 Mu_Basecore /
+# Common/Mu / Common/Mu_OEM_Sample / Silicium-ACPI / Binaries / openssl 六个
+# 子模块提交成了指向作者本机 /root/uefi-unicorn/... 的符号链接（git mode
+# 120000），在任何 CI 上都是断链。这里按 .gitmodules 的 URL/分支用 codeload
+# tarball 重建（openssl 固定 commit 67b5686b4419b4cb8caa502711c41815f5279751）。
+# 注意：这些分支不是上游 pin，产物以 workflow 运行时的源码为准。
+#
+# 产物用法：下载 SILICIUM_UEFI.fd 后放到 uefi-unicorn/Build/unicornPkg/
+# RELEASE_CLANGPDB/FV/，再在本地跑 scripts/make-m3-image.sh 打包 boot 镜像。
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: EDK II build target
+        type: choice
+        options: [RELEASE, DEBUG]
+        default: RELEASE
+
+permissions:
+  contents: read
+
+jobs:
+  firmware:
+    name: build unicornPkg
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: checkout uefi-unicorn
+        uses: actions/checkout@v4
+        with:
+          repository: zhouzhoublm/uefi-unicorn
+          ref: master
+          path: uefi-unicorn
+
+      - name: replace broken submodule symlinks with upstream tarballs
+        working-directory: uefi-unicorn
+        run: |
+          set -euo pipefail
+          fill () {
+            local path="$1" repo="$2" ref="$3" name
+            name="$(basename "$repo")-$(echo "$ref" | tr '/' '-').tar.gz"
+            rm -f "$path"
+            mkdir -p "$path"
+            curl -L --retry 3 -sS -o "$name" \
+              "https://codeload.github.com/${repo}/tar.gz/${ref}"
+            tar -xzf "$name" -C "$path" --strip-components=1
+            rm -f "$name"
+            echo "  $path <- $repo@$ref ($(find "$path" -type f | wc -l) files)"
+          }
+          fill Mu_Basecore microsoft/mu_basecore release/202608
+          fill Common/Mu microsoft/mu_plus release/202608
+          fill Common/Mu_OEM_Sample microsoft/mu_oem_sample release/202608
+          fill Silicium-ACPI Project-Silicium/Silicium-ACPI main
+          fill Binaries Project-Silicium/Device-Binaries main
+          fill Silicon/Silicium/OpensslPkg/Library/OpensslLib/openssl \
+            openssl/openssl 67b5686b4419b4cb8caa502711c41815f5279751
+
+      - name: install build environment
+        working-directory: uefi-unicorn
+        run: |
+          export CI_BUILD=true
+          bash ./setup_env.sh -p apt
+
+      - name: build unicornPkg
+        working-directory: uefi-unicorn
+        run: |
+          set -euo pipefail
+          TARGET="${{ inputs.target || 'RELEASE' }}"
+          python3 build_uefi.py -d unicorn -r "$TARGET" -c
+          FD="Build/unicornPkg/${TARGET}_CLANGPDB/FV/SILICIUM_UEFI.fd"
+          [ -f "$FD" ] || { echo "FD not found: $FD"; find Build -name '*.fd' 2>/dev/null; exit 1; }
+          ls -l "$FD"
+          sha256sum "$FD"
+
+      - name: upload firmware volume
+        uses: actions/upload-artifact@v4
+        with:
+          name: unicorn-fd-${{ inputs.target || 'RELEASE' }}
+          path: uefi-unicorn/Build/unicornPkg/**/FV/SILICIUM_UEFI.fd
+          if-no-files-found: error
+          retention-days: 30

@@ -37,7 +37,7 @@ CHECKS = [
     ("dts/unicorn.dts", r"pong,smmu-stream-id = <(0x[0-9a-f]+)>", "dts.ufs_smmu_sid",
      "UFS SMMU StreamID（继承 Pong 的 0xe0）"),
     ("dts/unicorn.dts", r"pon-ppid = <(0x[0-9a-f]+)>", "dts.pon_ppid",
-     "PON 按键 PPID（本机 pm8998-pon pwrkey = 0x13）"),
+     "PON 按键 PPID（本机 pmk8350 pon_hlos@1300 pwrkey = 0x13）"),
     ("dts/unicorn.dts", r"irq-gpio-num = <([0-9]+)>", "dts.touch_pins",
      "触摸 IRQ GPIO（本机 fts = 21）"),
     ("dts/unicorn.dts", r'compatible = "(unicorn,focaltech-fts)"', "dts.touch_compatible",

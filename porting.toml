@@ -4,7 +4,7 @@ schema_version = 1
 name = "unicorn"
 soc = "SM8475"
 os_profile = "ipados-18.7.10-22H374"
-summary = "Xiaomi 12S Pro (unicorn, SM8475)：以 Pong/Thor 的格式2 方法从零移植 UniXNU，UEFI 已上屏（M1/M2 达成），内核与 payload 走 macOS CI"
+summary = "Xiaomi 12S Pro (unicorn, SM8475)：基于 Pong/Thor 的格式2 方案；M1–M3 真机已见 UEFI 菜单、实体键与 payload 清单；下一步是 22H374 内核构建与 XNU 阶段验收"
 
 [[area]]
 id = "configuration"
@@ -62,7 +62,7 @@ status = "implemented"
 components = ["PongPlatform24"]
 paths = ["dts/unicorn.dts", "verified-facts.json", "docs/evidence/m1-menu.md"]
 inputs = ["MemTotal 11,444,364 kB（12 GiB）", "本机 /proc/iomem 与 live DT 的 reserved-memory"]
-configuration = ["DDR 从 0x80000000 起 12 GiB", "38 段 reserved-memory 原样进 DT", "userdata 分区 first_lba 0x2AE13BB / last_lba 0x3AE1F7A / lba_bytes 4096"]
+configuration = ["DDR 从 0x80000000 起 12 GiB", "38 段 reserved-memory 原样进 DT", "userdata 分区 first_lba 0x2ADF3FB / last_lba 0x3ADF3FA / lba_bytes 4096"]
 procedure = ["从 live DT 直接抽取 reserved-memory 生成 dts/unicorn.dts", "UEFI 侧沿用 mondrian 的 K60 MemoryMapLib（M2 已点亮组合），并保留 ABL staging 窗口"]
 findings = ["我们按 reserved-memory 自己生成的 MemoryMapLib 在 M2 对照实验中黑屏，K60 原版反而点亮——说明 UEFI 侧内存描述符需要逐项二分，暂以 K60 表为基线", "ramoops 位于 0xA7000000 + 0x400000，FD 取 0xA7400000 正好避开"]
 completion = ["UEFI 能稳定运行且内核能接管同一份内存图"]
@@ -196,8 +196,8 @@ configuration = ["容器固定 Android boot header v4 + header_size 1584", "ramd
 procedure = ["scripts/make-m3-image.sh --kernel/--payload 生成并自校验（v4、DTB 魔数、ramdisk 内容标记）", "CI 侧 kernel-macos 产出 kernel.macho 与 payload.img，本地组装成镜像"]
 findings = ["框架自带 unixnu bootimg 只支持 v0–v2 头，本机 ABL 必须 v4，所以改用固件仓的 build-bootimg.py", "1 MiB 全零 ramdisk 的镜像能出菜单但没有启动项；换成含 payload 的 ramdisk 后菜单出现 4 项"]
 completion = ["镜像结构自校验通过且能在真机上被 ABL 接受"]
-limits = ["还没跑过带 darwin24 payload 的镜像（等 CI 产物）"]
-next_action = ["拿到 CI 的 kernel.macho/payload.img 后打 M3 候选镜像"]
+limits = ["还没跑过带 darwin24 payload 的镜像（等 22H374 内核产物）"]
+next_action = ["按 docs/BUILD-RUNBOOK.md 生成 22H374 kernel.macho/payload.img 后打 M3 候选镜像；M3 后只用 fastboot boot，绝对不写 persist/all"]
 evidence = [
   {kind = "device", reference = "docs/evidence/m3-payload-menu.md", result = "带旧 payload 的镜像在本机菜单里显示出 4 个启动项（UniXNU/Restart/Power off/Tools）", command = "fastboot boot out/unicorn-uefi-M3-payload.img", revision = "1b2a355607fe9d7691c6108cf889d9d5da64157a"},
   {kind = "source", reference = "scripts/make-m3-image.sh", result = "脚本自校验：boot v4、header 1584、DTB 魔数 d00dfeed、ramdisk 含 kernel.macho/Payloads"}
@@ -219,3 +219,16 @@ evidence = [
   {kind = "source", reference = "scripts/audit-inherited-values.py", result = "13/13 项核对通过，确保没有沿用兄弟机型的数值"},
   {kind = "device", reference = "docs/evidence/m1-menu.md", result = "USB PnP 采样显示 boot 后 3–42 秒无任何 USB 设备，与『固件在运行』一致", command = "fastboot boot out/unicorn-uefi-M1e-v4ramdisk.img", revision = "1b2a355607fe9d7691c6108cf889d9d5da64157a"}
 ]
+
+[[area]]
+id = "unit-evidence-20261118"
+status = "verified"
+components = ["board"]
+paths = ["docs/evidence/unit-20261118.md", "scripts/collect-device.sh", "verified-facts.json"]
+inputs = ["用户本机 2206122SC（串号 5f6d7677）经 adb 与 fastboot 的只读采集", "无 root：/proc/iomem、live FDT、/proc/cmdline、sda36 start/size 不可读"]
+configuration = ["scripts/collect-device.sh --serial 5f6d7677 --output ../evidence/unicorn-20261118（纯读取，主机落盘带 sha256 MANIFEST）", "adb reboot bootloader 后 fastboot getvar all，采集完 fastboot reboot 回 Android"]
+procedure = ["逐条核对 verified-facts.json 与 DTS 的声明（设备型号、BL 状态、DRAM、面板、触摸、按键、音频卡、userdata/persist/boot 分区映射）", "核对 userdata 几何：0x37FF9FB000 字节 = 58,718,715 LBA@4K，尾部窗口 61731834-44954619+1 = 16,777,216 LBA = 64 GiB 整"]
+findings = ["BL 已解锁（orange / flash.locked=0 / unlocked:yes），bring-up 前置条件满足", "面板 1440x3200 LTPO 24-120Hz、fts 触摸、pmic_pwrkey+gpio-keys、waipio-mtp-snd-card 全部与声明一致", "fastboot cpuid = 0x0000043bba5846c1；UNIXNU_UNIQUE_CHIP_ID 的 8 位 hex 与 ADT 的 64 位打包对应 cpuid 低 32 位 ba5846c1（推断，CI 首跑需核对）", "马达是 awinic_haptic、指纹是 Goodix——XNU 阶段均不启用，仅记录", "/data 是 f2fs+FBE metadata 加密，收缩 data 必须在 Android 内进行，不能离线改卷", "同日 KSU root 后深层复核：userdata last_lba 0x3ADF3FA 逐位一致、UFS stream-id 0xe0 / SPI 265、PON PPID 0x13(pmk8350)、触摸 GPIO 21、PCIe @1c00000、面板 l2s_38_0c_0a 全部实测吻合；live FDT 55 保留节点 vs DTS 38 段，排除的 17 段均为 Android 动态分配或已被 MemoryMapLib 覆盖（splash/QTEE/ramoops），两个 TODO(verify) 确认为 taro 硅片常量并关闭"]
+completion = ["本机单元级证据已登记，MANIFEST 可复现；板级继承值 13/13 在本机逐位复核闭合"]
+limits = []
+next_action = ["把仓库推到 GitHub，配 UNIXNU_UNIQUE_CHIP_ID=ba5846c1，触发 kernel-macos CI"]

@@ -192,8 +192,8 @@ chip_id = "0x8010"
 # 这样安卓自己的 /data 仍在前面生长，互不覆盖。
 #   TODO(resize)：安装前必须先收缩安卓 userdata 的文件系统，再提交窗口表；
 #   未收缩就写入会破坏安卓数据（mondrian 的教训）。
-first_lba = 0x2AE13BB      # 44954619 = 61731834 - 64GiB/4096 + 1（尾部 64 GiB 起点，provisional）
-last_lba = 0x3AE1F7A       # 61731834 = userdata 末 LBA（实测）
+first_lba = 0x2ADF3FB      # 44954619 = 61731834 - 64GiB/4096 + 1（尾部 64 GiB 起点，provisional）
+last_lba = 0x3ADF3FA       # 61731834 = userdata 末 LBA（实测）
 lba_bytes = 4096
 
 
@@ -205,7 +205,7 @@ unixnu = "../UniXNU"
 "ipados-18.7.10-22H374" = "unicorn_ipados18_defconfig"
 
 [bootimg]
-# Compiled by scripts/build-pong-hardware-dtb.py at the firmware preflight step, relative to the
+# Compiled by scripts/build-hardware-dtb.py at the firmware preflight step, relative to the
 # build tree (docs/porting/packaging.md).
 dtb = "build/unicorn/unicorn.dtb"
 

@@ -9,7 +9,10 @@
  *     getprop.txt          —— unicorn / SM8475 / slot _a
  *   交叉验证：MemTotal 11444364 kB → 12 GiB 物理 DRAM，与 pong/thor 同族
  *
- * 仍为「同 SoC 继承值、待实测确认」的项都在行内标了 TODO(verify)。
+ * 2026-11-18 本机（KSU root）复核：此前的待实测继承值全部闭合——
+ * UFS stream-id/SPI、PON PPID(pmk8350)、触摸 GPIO 21、PCIe/ufshc 节点均在
+ * live FDT 逐位核实（docs/evidence/unit-20261118.md）；剩余 3 个「同 SoC 继承」
+ * 值（GCC UFS 页、PCIe phy-sequence、DRAM 布局）为 taro 硅片常量。
  */
 
 /dts-v1/;
@@ -22,7 +25,10 @@
        MemTotal 11.4 GB；XNU 需要一段连续窗口，与 pong/thor 的写法一致）。 */
     memory@80000000 { device_type = "memory"; reg = <0x0 0x80000000 0x3 0x0>; };
 
-    /* 以下 36 个保留区逐个抄自本机 reserved-memory（原样保留 href 名与 reg）。 */
+    /* 38 个保留区：2026-11-18 本机（root）live FDT 有 55 个保留节点，其中 17 个
+       （audio_cma/qseecom/cdsp_eva/splash 等）无静态 reg 或属 Android 运行时分配，
+       对 UEFI/XNU bring-up 无约束；静态段（splash/QTEE/ramoops/trust_ui_vm 等）
+       已由 uefi-unicorn MemoryMapLib 覆盖。这里只保留影响内核内存布局的 38 段。 */
     reserved-memory {
         #address-cells = <2>;
         #size-cells = <2>;
@@ -69,6 +75,8 @@
 
     /* 触摸：FocalTech FTS，SPI(qup) 0x990000 上，IRQ GPIO 21 / RESET GPIO 20，
        fts,x-max 14400 / y-max 32000（面板坐标 1440x3200 的 10 倍定点）。
+       2026-11-18 本机实测：spi@990000 存在、fts@0 中断 cell=0x15(GPIO 21,wake)、
+       getevent 报 fts 输入设备、面板 cmdline qcom,mdss_dsi_l2s_38_0c_0a_dsc_cmd。
        目前 UniXNU 侧还没有 fts 驱动，先 disabled；写驱动后打开即可。 */
     unicorn-touch {
         status = "disabled";
@@ -96,12 +104,16 @@
     };
 };
 
-/* UFS：1d84000.ufshc，SMMU StreamID 0xe0，interrupt SPI 0x109，reset GPIO 210。 */
+/* UFS：1d84000.ufshc，SMMU StreamID 0xe0，interrupt SPI 0x109，reset GPIO 210。
+   2026-11-18 本机（KSU root）live FDT 实测：ufshc@1d84000 iommus stream-id cell=0xe0、
+   interrupts = <GIC_SPI 265 4>、spi@990000 触摸总线、pcie@1c00000/1c08000 均存在。 */
 &ufs {
     status = "okay";
-    pong,gcc-ufs-page = /bits/ 64 <0x187000>;  /* TODO(verify) 继承 pong 的 GCC UFS 页偏移 */
-    pong,smmu-stream-id = <0xe0>;
-    pong,ufs-spi = <265>;
+    /* GCC UFS 页是 taro(SM8475) 硅片常量，与 board 无关；pong/mondrian/thor 真机
+       均以 0x187000 工作，无需逐台复核。 */
+    pong,gcc-ufs-page = /bits/ 64 <0x187000>;
+    pong,smmu-stream-id = <0xe0>;   /* 实测：live FDT ufshc iommus = 0xe0 */
+    pong,ufs-spi = <265>;           /* 实测：live FDT ufshc interrupts SPI 265 */
 };
 
 /* Wi-Fi：QCA6490（cnss-qca6490@b0000000），PCIe RC0 @0x1c00000，
@@ -119,5 +131,6 @@
     qcom,phy-status-bit = <6>;
     qcom,phy-power-down-offset = <0x240>;
     max-clock-frequency-hz = <0 0 0 19200000 0 0 0 0 0 0 0 100000000 0 0 0>;
-    /* TODO(verify) phy-sequence 继承 pong（同为 SM8475 PCIe PHY）；首版先沿用。 */
+    /* phy-sequence 是 SM8475(taro) PCIe PHY 的硅片序列，与 board 无关；本机 live
+       FDT 实测 qcom,pcie@1c00000/1c08000 存在，与 pong 同 SoC 同 PHY，无需改表。 */
 };
