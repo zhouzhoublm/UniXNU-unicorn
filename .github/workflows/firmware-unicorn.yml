@@ -123,6 +123,17 @@ jobs:
           print('unicorn.dsc: AdvLogDxe DebugLib detached')
           PY
 
+      - name: provide unicorn.dtb under Resources/DTBs
+        working-directory: uefi-unicorn
+        # build_uefi.py expects Resources/DTBs/<device>.dtb (Pong naming); this
+        # fork only carries sm8475-xiaomi-unicorn.dtb. Copy from the platform
+        # package FdtBlob, which is the same file make-m3-image.sh references.
+        run: |
+          set -euo pipefail
+          cp Platforms/Xiaomi/unicornPkg/FdtBlob/sm8475-xiaomi-unicorn.dtb \
+             Resources/DTBs/unicorn.dtb
+          ls -l Resources/DTBs/
+
       - name: build unicornPkg
         working-directory: uefi-unicorn
         run: |
