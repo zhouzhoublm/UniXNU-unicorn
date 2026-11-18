@@ -1,8 +1,8 @@
 diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
-index 1b30468..049da0e 100644
+index 1b30468..eddfff2 100644
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
-@@ -73,6 +73,82 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
+@@ -73,6 +73,84 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
  }
  
  
@@ -14,6 +14,8 @@ index 1b30468..049da0e 100644
 + * set_mmu_ttb_alternate(), while the boot-time TTBR1 is still installed, so
 + * every probe executes in a regime that can still paint the framebuffer.
 + */
++extern uint8_t bootstrap_pagetables[];
++
 +static void
 +unicorn_probe_walk(unsigned long va, unsigned int slot_l1, unsigned int slot_l2,
 +    unsigned int slot_l3, unsigned int color)
@@ -69,7 +71,7 @@ index 1b30468..049da0e 100644
 +		unicorn_stage_vm(21, 0xFF8080FF);
 +	}
 +	/* the switch installs a distinct table, not the boot tables again */
-+	if (cpu_ttep != kvtophys((vm_offset_t)&bootstrap_pagetables)) {
++	if (cpu_ttep != kvtophys((vm_offset_t)bootstrap_pagetables)) {
 +		unicorn_stage_vm(22, 0xFFFF00FF);
 +	}
 +	/* T1SZ bits 0..5, one square per set bit (slots 23..28) */
@@ -85,7 +87,7 @@ index 1b30468..049da0e 100644
  #if __ARM_KERNEL_PROTECT__
  /*
   * If we want to support __ARM_KERNEL_PROTECT__, we need a sufficient amount of
-@@ -2447,6 +2523,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2447,6 +2525,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  	arm_vm_physmap_init(args);
  	unicorn_stage_vm(12, 0xFF7F00FF); /* arm_vm_physmap_init returned */
  	unicorn_stage_vm(10, 0xFFFF00FF); /* bootstrap tables built, about to switch */
