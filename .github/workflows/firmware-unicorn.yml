@@ -132,7 +132,12 @@ jobs:
           set -euo pipefail
           cp Platforms/Xiaomi/unicornPkg/FdtBlob/sm8475-xiaomi-unicorn.dtb \
              Resources/DTBs/unicorn.dtb
-          ls -l Resources/DTBs/
+          # Upstream Mu-Silicium commits a 5-byte placeholder ramdisk consumed by
+          # the convenience mkbootimg call in build_uefi.py; the fork dropped it.
+          # The Mu-unicorn.img it produces is not our flashable image (that is
+          # make-m3-image.sh with the payload as ramdisk) — the FD is the goal.
+          printf 'rdsk0' > Resources/ramdisk
+          ls -l Resources/DTBs/ Resources/ramdisk
 
       - name: build unicornPkg
         working-directory: uefi-unicorn
