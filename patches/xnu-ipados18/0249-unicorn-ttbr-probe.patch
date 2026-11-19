@@ -169,11 +169,12 @@ index 1b30468..5a94b60 100644
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -690,7 +690,8 @@ arm_init(
+@@ -690,7 +691,9 @@ arm_init(
  		(void)switch_to_serial_console(); /* Switch into serial mode from video console */
  		disableConsoleOutput = FALSE;     /* Allow printfs to happen */
  	}
  	PE_create_console();
++	extern void unicorn_stage_phys(unsigned int slot, unsigned int argb);
 +	unicorn_stage_phys(16, 0xFF00FFFF); /* console up */
  
  	/* setup console output */
