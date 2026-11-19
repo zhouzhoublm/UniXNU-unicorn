@@ -1,8 +1,8 @@
 diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
-index 1b30468..db3b5e7 100644
+index 1b30468..05310d6 100644
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
-@@ -64,8 +64,69 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
+@@ -64,8 +64,8 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
  	unsigned int y = 240u + slot * 80u;
  	unsigned int dy, dx;
  
@@ -10,13 +10,13 @@ index 1b30468..db3b5e7 100644
 -		for (dx = 0u; dx < 32u; dx++) {
 +	for (dy = 0u; dy < 72u; dy++) {
 +		for (dx = 0u; dx < 72u; dx++) {
-+			fb[(y + dy) * stride + 64u + dx] = argb;
-+		}
-+	}
-+	__asm__ volatile ("dsb sy" ::: "memory");
-+}
-+
-+
+ 			fb[(y + dy) * stride + 64u + dx] = argb;
+ 		}
+ 	}
+@@ -73,6 +73,108 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
+ }
+ 
+ 
 +/*
 + * Unicorn pre-switch diagnostics.  Column 2 (x=192) breadcrumbs mark the
 + * arm_vm_init middle region (root table alloc, physmap tables, segment
@@ -66,15 +66,63 @@ index 1b30468..db3b5e7 100644
 +	}
 +	fb = (volatile unsigned int *)(unsigned long)unicorn_fb_va;
 +	unsigned int stride = 5760u / 4u;
-+	unsigned int y = 240u + slot * 80u;
++	/*
++	 * Slots >= 25 reuse the rows of the early column-1 slots (0..7):
++	 * those squares are long consumed and their rows sit deep inside the
++	 * 12 MiB fb mapping, so high slot numbers can never spill past the
++	 * last mapped 2 MiB block.
++	 */
++	unsigned int row_slot = (slot >= 25u) ? (slot - 25u) : slot;
++	unsigned int y = 240u + row_slot * 80u;
 +	unsigned int dy, dx;
 +
 +	for (dy = 0u; dy < 72u; dy++) {
 +		for (dx = 0u; dx < 72u; dx++) {
- 			fb[(y + dy) * stride + 64u + dx] = argb;
- 		}
- 	}
-@@ -2257,6 +2318,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
++			fb[(y + dy) * stride + 64u + dx] = argb;
++		}
++	}
++	__asm__ volatile ("dsb sy" ::: "memory");
++}
++
++/*
++ * C22 minimal exception vectors: 16 entries x 0x80 bytes, all sharing one
++ * memory-less stub.  On ANY exception it reads ESR_EL1, waits
++ * 240s + 4s*((ESR>>26)&0x3f) and fires PSCI SYSTEM_RESET, so every abort
++ * in the post-platform init chain terminates in a decodable reboot (the
++ * adb-return timestamp reports the exception class EC).  No memory access
++ * at all: safe in any MMU state, including mid-wedge.
++ */
++void unicorn_mini_vectors(void);
++
++__asm__(
++    ".text\n"
++    ".align 12, 0x0\n"
++    "_unicorn_mini_vectors:\n"
++    ".rept 16\n"
++    "  msr daifset, #0xf\n"
++    "  mrs x0, esr_el1\n"
++    "  ubfx x0, x0, #26, #6\n"
++    "  add x0, x0, #60\n"
++    "  lsl x0, x0, #2\n"               /* seconds = (60 + EC) * 4 = 240 + 4*EC */
++    "  mrs x1, cntfrq_el0\n"
++    "  mul x0, x0, x1\n"               /* ticks */
++    "  mrs x2, cntvct_el0\n"
++    "  add x2, x2, x0\n"
++    "1: mrs x3, cntvct_el0\n"
++    "  cmp x3, x2\n"
++    "  b.lt 1b\n"
++    "  mov x0, #0x84000009\n"
++    "  smc #0\n"
++    "2: wfi\n"
++    "  b 2b\n"
++    ".endr\n"
++);
++
++
+ #if __ARM_KERNEL_PROTECT__
+ /*
+  * If we want to support __ARM_KERNEL_PROTECT__, we need a sufficient amount of
+@@ -2257,6 +2359,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  	cpu_tte = (tt_entry_t *)alloc_ptpage(TRUE);
  	cpu_ttep = kvtophys((vm_offset_t)cpu_tte);
  	bzero(cpu_tte, ARM_PGBYTES);
@@ -82,7 +130,7 @@ index 1b30468..db3b5e7 100644
  	avail_end = gPhysBase + gPhysSize; /* bootstrap allocations stay in the primary bank */
  	assert(!(avail_end & PAGE_MASK));
  
-@@ -2274,6 +2336,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2274,6 +2377,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  	 *   the so called physical aperture should be statically mapped
  	 */
  	init_ptpages(cpu_tte, gVirtBase, dynamic_memory_begin, TRUE, ARM_TTE_TABLE_AP(ARM_TTE_TABLE_AP_USER_NA));
@@ -90,7 +138,7 @@ index 1b30468..db3b5e7 100644
  
  #if defined(ARM_LARGE_MEMORY)
  	/*
-@@ -2364,6 +2427,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2364,6 +2468,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  	}
  
  	(void) PE_parse_boot_argn("use_contiguous_hint", &use_contiguous_hint, sizeof(use_contiguous_hint));
@@ -98,7 +146,7 @@ index 1b30468..db3b5e7 100644
  	assert(segSizePRELINKTEXT < 0x03000000); /* 23355738 */
  
  	/* if one of the new segments is present, the other one better be as well */
-@@ -2375,6 +2439,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2375,6 +2480,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  	sdata = (vm_offset_t) segDATAB;
  	edata = (vm_offset_t) segDATAB + segSizeDATA;
  	end_kern = round_page(segHIGHESTKC ? segHIGHESTKC : getlastkerneladdr()); /* Force end to next page */
@@ -106,7 +154,7 @@ index 1b30468..db3b5e7 100644
  
  	vm_set_page_size();
  
-@@ -2410,6 +2475,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2410,6 +2516,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  	ptpage_vaddr = alloc_ptpage(TRUE);
  	*cpu_l2_tte = (kvtophys(ptpage_vaddr) & ARM_TTE_TABLE_MASK) | ARM_TTE_TYPE_TABLE | ARM_TTE_VALID | ARM_TTE_TABLE_PXN | ARM_TTE_TABLE_XN;
  	bzero((void *)ptpage_vaddr, ARM_PGBYTES);
@@ -114,7 +162,7 @@ index 1b30468..db3b5e7 100644
  
  	/*
  	 * Initialize l2 page table pages :
-@@ -2442,13 +2508,34 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2442,13 +2549,34 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  #endif /* CONFIG_CPU_COUNTERS */
  
  	arm_set_user_tbi();
@@ -131,9 +179,9 @@ index 1b30468..db3b5e7 100644
 +	 * breadcrumb rows up to ~2000.
 +	 */
 +	unicorn_fb_va = (physmap_end + ARM_TT_L2_OFFMASK) & ~ARM_TT_L2_OFFMASK;
-+	init_ptpages(cpu_tte, unicorn_fb_va, unicorn_fb_va + 7 * ARM_TT_L2_SIZE, FALSE,
++	init_ptpages(cpu_tte, unicorn_fb_va, unicorn_fb_va + 6 * ARM_TT_L2_SIZE, FALSE,
 +	    ARM_DYNAMIC_TABLE_XN | ARM_TTE_TABLE_AP(ARM_TTE_TABLE_AP_USER_NA));
-+	for (unsigned long i = 0; i < 7; i++) {
++	for (unsigned long i = 0; i < 6; i++) {
 +		tt_entry_t *tte2 = arm_kva_to_tte(unicorn_fb_va + i * ARM_TT_L2_SIZE);
 +		*tte2 = ((0xB8000000ULL + i * ARM_TT_L2_SIZE) & ARM_TTE_BLOCK_L2_MASK)
 +		    | ARM_TTE_TYPE_BLOCK | ARM_TTE_VALID | ARM_TTE_BLOCK_AF | ARM_TTE_BLOCK_PNX
@@ -150,15 +198,24 @@ index 1b30468..db3b5e7 100644
  
  #if XNU_MONITOR
  	ml_enable_monitor();
-@@ -2458,6 +2545,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2458,6 +2586,16 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  
  	flush_mmu_tlb();
  	kva_active = TRUE;
 +	unicorn_stage_phys(14, 0xFF00FFFF); /* identity retired, physmap world */
++
++	/*
++	 * C22: install the memory-less exception vectors.  From here until
++	 * machine_startup every abort reports its exception class through the
++	 * PSCI reset timing (240s + 4s*EC) instead of hanging silently.
++	 */
++	__asm__ volatile ("msr vbar_el1, %0" :: "r" ((unsigned long)&unicorn_mini_vectors) : "memory");
++	__asm__ volatile ("isb sy" ::: "memory");
++
  	// global table pointers may need to be different due to physical aperture remapping
  	cpu_tte = (tt_entry_t*)(phystokv(cpu_ttep));
  	invalid_tte = (tt_entry_t*)(phystokv(invalid_ttep));
-@@ -2679,6 +2767,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2679,6 +2817,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  #endif
  	first_avail = avail_start;
  	patch_low_glo_static_region(args->topOfKernelData, avail_start - args->topOfKernelData);
@@ -169,7 +226,7 @@ index 1b30468..db3b5e7 100644
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -630,128 +630,139 @@ arm_init(
+@@ -630,128 +630,159 @@ arm_init(
  	arm_vm_init(xmaxmem, args);
 +	extern void unicorn_stage_phys(unsigned int slot, unsigned int argb);
 +	unicorn_stage_phys(25, 0xFF00A5FF); /* arm_vm_init returned */
@@ -242,7 +299,6 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  		disableConsoleOutput = FALSE;     /* Allow printfs to happen */
  	}
  	PE_create_console();
-+	extern void unicorn_stage_phys(unsigned int slot, unsigned int argb);
 +	unicorn_stage_phys(16, 0xFF00FFFF); /* console up */
 
  	/* setup console output */
@@ -307,5 +363,26 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  	 */
  	__stack_chk_guard &= ~(0xFFULL << 8);
 +	unicorn_stage_phys(18, 0xFFFFFF00); /* about to run machine_startup */
++	{
++		unsigned long freq, t0, t;
++		__asm__ volatile ("mrs %0, cntfrq_el0" : "=r" (freq));
++		__asm__ volatile ("mrs %0, cntvct_el0" : "=r" (t0));
++		do {
++			__asm__ volatile ("mrs %0, cntvct_el0" : "=r" (t));
++		} while ((t - t0) < freq * 200u);
++		__asm__ volatile ("dsb sy" ::: "memory");
++		{
++			register unsigned long x0 __asm__("x0") = 0x84000009UL;
++			register unsigned long x1 __asm__("x1") = 0;
++			register unsigned long x2 __asm__("x2") = 0;
++			register unsigned long x3 __asm__("x3") = 0;
++			__asm__ volatile ("smc #0" : "+r" (x0)
++			    : "r" (x1), "r" (x2), "r" (x3)
++			    : "memory", "cc");
++		}
++		for (;;) {
++			__asm__ volatile ("wfi");
++		}
++	}
  	machine_startup(args);
  }
