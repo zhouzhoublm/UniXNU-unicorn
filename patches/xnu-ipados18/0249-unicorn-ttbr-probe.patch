@@ -224,11 +224,10 @@ index 1b30468..070d502 100644
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -98,3 +98,11 @@
- extern void     patch_low_glo(void);
+@@ -99,6 +99,14 @@
  extern int      serial_init(void);
  extern void sleep_token_buffer_init(void);
-+
+ 
 +#if defined(PONG) && !(defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE)
 +/* The persistent console mirror is disabled on this board: its carveout
 + * address is a Nothing Phone (2) DT reserve that the Xiaomi 12S Pro does
@@ -236,28 +235,34 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 + * callers (thread diag, pmsg sysctl, proc exit) still need the symbol. */
 +void pong_ramoops_diagnostic_write(const char *text, int length) { (void)text; (void)length; }
 +#endif
-@@ -630,128 +630,168 @@ arm_init(
++
+ extern vm_offset_t intstack_top;
+ #if __arm64__
+ extern vm_offset_t excepstack_top;
+@@ -602,13 +610,17 @@
+ 
+ 	unicorn_stage(7, 0xFF8000FF); /* about to call arm_vm_init */
  	arm_vm_init(xmaxmem, args);
 +	extern void unicorn_stage_phys(unsigned int slot, unsigned int argb);
 +	unicorn_stage_phys(25, 0xFF00A5FF); /* arm_vm_init returned */
-
+ 
  #if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
  	(void)pong_ramoops_console_init();
  #endif
 +	unicorn_stage_phys(26, 0xFFA5FF00); /* past pong ramoops (disabled on this board) */
-
+ 
  	if (debug_boot_arg) {
  		patch_low_glo();
 +	unicorn_stage_phys(27, 0xFFFF00A5); /* past patch_low_glo */
  	}
-
+ 
  #if __arm64__ && WITH_CLASSIC_S2R
- 	sleep_token_buffer_init();
+@@ -616,11 +628,15 @@
  #endif
-
+ 
  	PE_consistent_debug_inherit();
 +	unicorn_stage_phys(28, 0xFF8000FF); /* consistent debug inherit */
-
+ 
  	/* Setup debugging output. */
  	const unsigned int serial_exists = serial_init();
 +	unicorn_stage_phys(29, 0xFF0080FF); /* serial init */
@@ -268,93 +273,49 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  #if defined(PONG)
      printf("Pong RAM: %u owned banks, %llu MiB managed before kernel reservations, 4 KiB pages\n",
          pong_ram_range_count, pong_ram_bytes >> 20);
- #endif
-
- 	serialmode = 0;
- 	if (PE_parse_boot_argn("serial", &serialmode, sizeof(serialmode))) {
- 		/* Do we want a serial keyboard and/or console? */
- 		kprintf("Serial mode specified: %08X\n", serialmode);
- 		disable_iolog_serial_output = (serialmode & SERIALMODE_NO_IOLOG) != 0;
- 		enable_dklog_serial_output = restore_boot || (serialmode & SERIALMODE_DKLOG) != 0;
- 		int force_sync = serialmode & SERIALMODE_SYNCDRAIN;
- 		if (force_sync || PE_parse_boot_argn("drain_uart_sync", &force_sync, sizeof(force_sync))) {
- 			if (force_sync) {
- 				serialmode |= SERIALMODE_SYNCDRAIN;
- 				kprintf(
- 					"WARNING: Forcing uart driver to output synchronously."
- 					"printf()s/IOLogs will impact kernel performance.\n"
- 					"You are advised to avoid using 'drain_uart_sync' boot-arg.\n");
- 			}
- 		}
- 		/* If on-demand is selected, disable serials until reception. */
- 		bool on_demand = !!(serialmode & SERIALMODE_ON_DEMAND);
- 		if (on_demand && !(serialmode & SERIALMODE_INPUT)) {
- 			kprintf(
- 				"WARNING: invalid serial boot-args : ON_DEMAND (0x%x) flag "
- 				"requires INPUT(0x%x). Ignoring ON_DEMAND.\n",
- 				SERIALMODE_ON_DEMAND, SERIALMODE_INPUT
- 				);
- 			on_demand = 0;
- 		}
- 		serial_set_on_demand(on_demand);
- 	}
- 	if (kern_feature_override(KF_SERIAL_OVRD)) {
- 		serialmode = 0;
- 	}
-
- 	/* Start serial if requested and a serial device was enumerated in serial_init(). */
- 	if ((serialmode & SERIALMODE_OUTPUT) && serial_exists) {
- 		serial_console_enabled = true;
- 		(void)switch_to_serial_console(); /* Switch into serial mode from video console */
+@@ -665,6 +681,7 @@
  		disableConsoleOutput = FALSE;     /* Allow printfs to happen */
  	}
  	PE_create_console();
 +	unicorn_stage_phys(16, 0xFF00FFFF); /* console up */
-
+ 
  	/* setup console output */
  	PE_init_printf(FALSE);
-
- #if __arm64__
- #if DEBUG
- 	dump_kva_space();
- #endif
- #endif
-
+@@ -678,9 +695,15 @@
  	cpu_machine_idle_init(TRUE);
-
+ 
  	PE_init_platform(TRUE, &BootCpuData);
 +	unicorn_stage_phys(17, 0xFF00FF7F); /* pong platform returned */
++
 +	extern char unicorn_mini_vectors[];
 +	__asm__ volatile ("msr vbar_el1, %0" :: "r" ((unsigned long)unicorn_mini_vectors) : "memory");
 +	__asm__ volatile ("isb sy" ::: "memory");
-
+ 
  	/* Initialize the debug infrastructure system-wide and on the local core. */
  	pe_arm_debug_init_early(&BootCpuData);
 +	unicorn_stage_phys(19, 0xFFFF8000); /* debug early init */
-
+ 
  #if __arm64__
  	extern bool cpu_config_correct;
- 	if (!cpu_config_correct) {
- 		panic("The cpumask=N boot arg cannot be used together with cpus=N, and the boot CPU must be enabled");
+@@ -689,6 +712,7 @@
  	}
-
+ 
  	ml_map_cpu_pio();
 +	unicorn_stage_phys(20, 0xFF00FFFF); /* cpu PIO mapped */
-
+ 
  #if APPLE_ARM64_ARCH_FAMILY
  	configure_late_apple_regs(true);
+@@ -697,6 +721,7 @@
  #endif
-
- #endif
-
+ 
  	cpu_timebase_init(TRUE);
 +	unicorn_stage_phys(21, 0xFF00FF00); /* timebase init */
-
+ 
  #if KPERF
  	/* kptimer_curcpu_up() must be called after cpu_timebase_init */
- 	kptimer_curcpu_up();
+@@ -704,11 +729,13 @@
  #endif /* KPERF */
-
+ 
  	PE_init_cpu();
 +	unicorn_stage_phys(22, 0xFFFFFF00); /* PE_init_cpu */
  #if __arm64__
@@ -363,25 +324,15 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  #endif
  	fiq_context_init(TRUE);
 +	unicorn_stage_phys(23, 0xFFFF00FF); /* fiq context init */
-
-
+ 
+ 
  #if HIBERNATION
- 	pal_hib_init();
- #endif /* HIBERNATION */
-
- 	/*
- 	 * Initialize the stack protector for all future calls
- 	 * to C code. Since kernel_bootstrap() eventually
- 	 * switches stack context without returning through this
- 	 * function, we do not risk failing the check even though
- 	 * we mutate the guard word during execution.
- 	 */
- 	__stack_chk_guard = (unsigned long)early_random();
- 	/* Zero a byte of the protector to guard
+@@ -727,6 +754,29 @@
  	 * against string vulnerabilities
  	 */
  	__stack_chk_guard &= ~(0xFFULL << 8);
 +	unicorn_stage_phys(18, 0xFFFFFF00); /* about to run machine_startup */
++
 +	{
 +		unsigned long freq, t0, t;
 +		__asm__ volatile ("mrs %0, cntfrq_el0" : "=r" (freq));
@@ -405,3 +356,4 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 +	}
  	machine_startup(args);
  }
+ 
