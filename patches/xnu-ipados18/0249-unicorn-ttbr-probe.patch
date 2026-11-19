@@ -1,5 +1,5 @@
 diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
-index 1b30468..f0f95d4 100644
+index 1b30468..1bac5b3 100644
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
 @@ -64,8 +64,8 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
@@ -91,7 +91,7 @@ index 1b30468..f0f95d4 100644
  
  	/*
  	 * Initialize l2 page table pages :
-@@ -2442,13 +2478,44 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2442,13 +2478,90 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  #endif /* CONFIG_CPU_COUNTERS */
  
  	arm_set_user_tbi();
@@ -103,24 +103,67 @@ index 1b30468..f0f95d4 100644
  	unicorn_stage_vm(12, 0xFF7F00FF); /* arm_vm_physmap_init returned */
  	unicorn_stage_vm(10, 0xFFFF00FF); /* bootstrap tables built, about to switch */
 +	unicorn_stage_vm(8, 0xFFFF8000); /* C7: pre-switch marker, overwrites slot 8 blue with orange */
- 	set_mmu_ttb_alternate(cpu_ttep & TTBR_BADDR_MASK);
--	unicorn_stage_vm(13, 0xFFFF00A5); /* TTBR1 installed */
 +
 +	/*
-+	 * C11: pure-register post-switch verdict.  No memory access at all
-+	 * after the switch (no framebuffer, no phystokv) -- only cntvct
-+	 * register reads, then PSCI SYSTEM_RESET.  A reboot here proves the
-+	 * TTBR1 switch itself survived; a hang means the switch aborted.
-+	 *   (C10 stuck with the phystokv red paint in this slot, so that
-+	 *    paint is the current prime suspect, not necessarily the switch.)
++	 * C12: runtime table inspection, timing-encoded.  Reads the new
++	 * bootstrap tables (cpu_tte) BEFORE the switch and encodes the state
++	 * of the kernel-text walk into a PSCI-reset delay; the reboot time
++	 * decodes the bits (monitor timestamps the adb return).
++	 *   +2s  base (reset fired)
++	 *   +4s  kernel-text L1 TTE valid
++	 *   +8s  kernel-text L1 TTE is a table
++	 *   +16s kernel-text L2 TTE valid
++	 *   +32s kernel-text L2 TTE is a table
++	 *   +64s kernel-text L3 PTE valid
++	 *   +128s physmap L1 TTE valid
++	 * Table pages are reached through the V=P identity map (PA as VA):
++	 * they all live inside the owned window, and TTBR0 still carries the
++	 * V=P tables here.  phystokv() must NOT be used: ptov_table is now
++	 * populated, so it returns physmap VAs that only exist after the
++	 * switch (that is what killed the old probe).
 +	 */
 +	{
-+		unsigned long freq, t0, t;
-+		__asm__ volatile ("mrs %0, cntfrq_el0" : "=r" (freq));
-+		__asm__ volatile ("mrs %0, cntvct_el0" : "=r" (t0));
-+		do {
-+			__asm__ volatile ("mrs %0, cntvct_el0" : "=r" (t));
-+		} while ((t - t0) < freq * 6u);
++		unsigned long delay = 2;
++		{
++			unsigned long kva = (unsigned long)&unicorn_stage_vm;
++			tt_entry_t l1e = cpu_tte[(kva >> ARM_TT_L1_SHIFT) & (TTE_PGENTRIES - 1)];
++			if (l1e & ARM_TTE_VALID) {
++				delay += 4;
++				if ((l1e & ARM_TTE_TYPE_MASK) == ARM_TTE_TYPE_TABLE) {
++					const unsigned long *l2 =
++					    (const unsigned long *)(unsigned long)(l1e & ARM_TTE_TABLE_MASK);
++					unsigned long l2e = l2[(kva >> ARM_TT_L2_SHIFT) & (TTE_PGENTRIES - 1)];
++					delay += 8;
++					if (l2e & ARM_TTE_VALID) {
++						delay += 16;
++						if ((l2e & ARM_TTE_TYPE_MASK) == ARM_TTE_TYPE_TABLE) {
++							const unsigned long *l3 =
++							    (const unsigned long *)(unsigned long)(l2e & ARM_TTE_TABLE_MASK);
++							unsigned long pte = l3[(kva >> ARM_TT_L3_SHIFT) & (TTE_PGENTRIES - 1)];
++							delay += 32;
++							if (pte & ARM_TTE_VALID) {
++								delay += 64;
++							}
++						}
++					}
++				}
++			}
++		}
++		{
++			unsigned long pmb = physmap_base;
++			tt_entry_t pe = cpu_tte[(pmb >> ARM_TT_L1_SHIFT) & (TTE_PGENTRIES - 1)];
++			if (pe & ARM_TTE_VALID) {
++				delay += 128;
++			}
++		}
++		{
++			unsigned long freq, t0, t;
++			__asm__ volatile ("mrs %0, cntfrq_el0" : "=r" (freq));
++			__asm__ volatile ("mrs %0, cntvct_el0" : "=r" (t0));
++			do {
++				__asm__ volatile ("mrs %0, cntvct_el0" : "=r" (t));
++			} while ((t - t0) < freq * delay);
++		}
 +		{
 +			register unsigned long x0 __asm__("x0") = 0x84000009UL;
 +			register unsigned long x1 __asm__("x1") = 0;
@@ -134,6 +177,9 @@ index 1b30468..f0f95d4 100644
 +			__asm__ volatile ("wfi");
 +		}
 +	}
++
+ 	set_mmu_ttb_alternate(cpu_ttep & TTBR_BADDR_MASK);
+-	unicorn_stage_vm(13, 0xFFFF00A5); /* TTBR1 installed */
  
  #if XNU_MONITOR
  	ml_enable_monitor();
