@@ -169,69 +169,130 @@ index 1b30468..db3b5e7 100644
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -690,68 +690,77 @@ arm_init(
+@@ -630,128 +630,138 @@ arm_init(
+ 	arm_vm_init(xmaxmem, args);
++	unicorn_stage_phys(25, 0xFF00A5FF); /* arm_vm_init returned */
+
+ #if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
+ 	(void)pong_ramoops_console_init();
++	unicorn_stage_phys(26, 0xFFA5FF00); /* past pong ramoops console */
+ #endif
+
+ 	if (debug_boot_arg) {
+ 		patch_low_glo();
++	unicorn_stage_phys(27, 0xFFFF00A5); /* past patch_low_glo */
+ 	}
+
+ #if __arm64__ && WITH_CLASSIC_S2R
+ 	sleep_token_buffer_init();
+ #endif
+
+ 	PE_consistent_debug_inherit();
++	unicorn_stage_phys(28, 0xFF8000FF); /* consistent debug inherit */
+
+ 	/* Setup debugging output. */
+ 	const unsigned int serial_exists = serial_init();
++	unicorn_stage_phys(29, 0xFF0080FF); /* serial init */
+ 	kernel_startup_initialize_upto(STARTUP_SUB_KPRINTF);
++	unicorn_stage_phys(30, 0xFFFFFFFF); /* startup upto KPRINTF */
+ 	kprintf("kprintf initialized\n");
++	unicorn_stage_phys(31, 0xFFFF0000); /* kprintf survived - console writes work! */
+ #if defined(PONG)
+     printf("Pong RAM: %u owned banks, %llu MiB managed before kernel reservations, 4 KiB pages\n",
+         pong_ram_range_count, pong_ram_bytes >> 20);
+ #endif
+
+ 	serialmode = 0;
+ 	if (PE_parse_boot_argn("serial", &serialmode, sizeof(serialmode))) {
+ 		/* Do we want a serial keyboard and/or console? */
+ 		kprintf("Serial mode specified: %08X\n", serialmode);
+ 		disable_iolog_serial_output = (serialmode & SERIALMODE_NO_IOLOG) != 0;
+ 		enable_dklog_serial_output = restore_boot || (serialmode & SERIALMODE_DKLOG) != 0;
+ 		int force_sync = serialmode & SERIALMODE_SYNCDRAIN;
+ 		if (force_sync || PE_parse_boot_argn("drain_uart_sync", &force_sync, sizeof(force_sync))) {
+ 			if (force_sync) {
+ 				serialmode |= SERIALMODE_SYNCDRAIN;
+ 				kprintf(
+ 					"WARNING: Forcing uart driver to output synchronously."
+ 					"printf()s/IOLogs will impact kernel performance.\n"
+ 					"You are advised to avoid using 'drain_uart_sync' boot-arg.\n");
+ 			}
+ 		}
+ 		/* If on-demand is selected, disable serials until reception. */
+ 		bool on_demand = !!(serialmode & SERIALMODE_ON_DEMAND);
+ 		if (on_demand && !(serialmode & SERIALMODE_INPUT)) {
+ 			kprintf(
+ 				"WARNING: invalid serial boot-args : ON_DEMAND (0x%x) flag "
+ 				"requires INPUT(0x%x). Ignoring ON_DEMAND.\n",
+ 				SERIALMODE_ON_DEMAND, SERIALMODE_INPUT
+ 				);
+ 			on_demand = 0;
+ 		}
+ 		serial_set_on_demand(on_demand);
+ 	}
+ 	if (kern_feature_override(KF_SERIAL_OVRD)) {
+ 		serialmode = 0;
+ 	}
+
+ 	/* Start serial if requested and a serial device was enumerated in serial_init(). */
+ 	if ((serialmode & SERIALMODE_OUTPUT) && serial_exists) {
+ 		serial_console_enabled = true;
  		(void)switch_to_serial_console(); /* Switch into serial mode from video console */
  		disableConsoleOutput = FALSE;     /* Allow printfs to happen */
  	}
  	PE_create_console();
 +	extern void unicorn_stage_phys(unsigned int slot, unsigned int argb);
 +	unicorn_stage_phys(16, 0xFF00FFFF); /* console up */
- 
+
  	/* setup console output */
  	PE_init_printf(FALSE);
- 
+
  #if __arm64__
  #if DEBUG
  	dump_kva_space();
  #endif
  #endif
- 
+
  	cpu_machine_idle_init(TRUE);
- 
+
  	PE_init_platform(TRUE, &BootCpuData);
-+	unicorn_stage_phys(19, 0xFF7F00FF); /* pong platform returned */
- 
+
  	/* Initialize the debug infrastructure system-wide and on the local core. */
  	pe_arm_debug_init_early(&BootCpuData);
-+	unicorn_stage_phys(20, 0xFF00FFFF); /* debug early init */
- 
+
  #if __arm64__
  	extern bool cpu_config_correct;
  	if (!cpu_config_correct) {
  		panic("The cpumask=N boot arg cannot be used together with cpus=N, and the boot CPU must be enabled");
  	}
- 
+
  	ml_map_cpu_pio();
-+	unicorn_stage_phys(21, 0xFF00FF7F); /* cpu PIO mapped */
- 
+
  #if APPLE_ARM64_ARCH_FAMILY
  	configure_late_apple_regs(true);
  #endif
- 
+
  #endif
- 
+
  	cpu_timebase_init(TRUE);
-+	unicorn_stage_phys(22, 0xFFFFFF00); /* timebase init */
- 
+
  #if KPERF
  	/* kptimer_curcpu_up() must be called after cpu_timebase_init */
  	kptimer_curcpu_up();
  #endif /* KPERF */
- 
+
  	PE_init_cpu();
-+	unicorn_stage_phys(23, 0xFF7F00FF); /* PE_init_cpu */
  #if __arm64__
  	apt_msg_init();
  	apt_msg_init_cpu();
  #endif
  	fiq_context_init(TRUE);
-+	unicorn_stage_phys(24, 0xFFFF00FF); /* fiq context init */
- 
- 
+
+
  #if HIBERNATION
  	pal_hib_init();
  #endif /* HIBERNATION */
- 
+
  	/*
  	 * Initialize the stack protector for all future calls
  	 * to C code. Since kernel_bootstrap() eventually
