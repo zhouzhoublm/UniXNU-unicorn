@@ -130,6 +130,7 @@ timeout = 15
 # 1024-byte buffer and refuses more than 1000 bytes; keep the final assembled line within1023 bytes.
 kernel_args = [
   "keepsyms=1",
+  "-v",
   "cpus=1",
   "maxmem=2000",
   "pong_allow_unauthenticated_root=1",
