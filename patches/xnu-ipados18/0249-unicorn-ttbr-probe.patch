@@ -1,5 +1,5 @@
 diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
-index 1b30468..1bac5b3 100644
+index 1b30468..51e2167 100644
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
 @@ -64,8 +64,8 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
@@ -91,7 +91,7 @@ index 1b30468..1bac5b3 100644
  
  	/*
  	 * Initialize l2 page table pages :
-@@ -2442,13 +2478,90 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2442,13 +2478,101 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  #endif /* CONFIG_CPU_COUNTERS */
  
  	arm_set_user_tbi();
@@ -105,55 +105,66 @@ index 1b30468..1bac5b3 100644
 +	unicorn_stage_vm(8, 0xFFFF8000); /* C7: pre-switch marker, overwrites slot 8 blue with orange */
 +
 +	/*
-+	 * C12: runtime table inspection, timing-encoded.  Reads the new
-+	 * bootstrap tables (cpu_tte) BEFORE the switch and encodes the state
-+	 * of the kernel-text walk into a PSCI-reset delay; the reboot time
-+	 * decodes the bits (monitor timestamps the adb return).
-+	 *   +2s  base (reset fired)
-+	 *   +4s  kernel-text L1 TTE valid
-+	 *   +8s  kernel-text L1 TTE is a table
-+	 *   +16s kernel-text L2 TTE valid
-+	 *   +32s kernel-text L2 TTE is a table
-+	 *   +64s kernel-text L3 PTE valid
-+	 *   +128s physmap L1 TTE valid
-+	 * Table pages are reached through the V=P identity map (PA as VA):
-+	 * they all live inside the owned window, and TTBR0 still carries the
-+	 * V=P tables here.  phystokv() must NOT be used: ptov_table is now
-+	 * populated, so it returns physmap VAs that only exist after the
-+	 * switch (that is what killed the old probe).
++	 * C13: fault-guarded walk, depth-encoded.  C12 timed out because a
++	 * walk step dereferenced a table PA outside the owned window (V=P
++	 * unmapped) and aborted before the reset.  Now every table PA is
++	 * range-checked first, and the walk DEPTH is encoded in the reset
++	 * delay: delay = 2 + 4*depth, where
++	 *   0: kernel-text L1 TTE invalid
++	 *   1: L1 valid, not a table
++	 *   2: L1 table PA outside the owned window
++	 *   3: L2 TTE invalid
++	 *   4: L2 valid, not a table
++	 *   5: L2 table PA outside the owned window
++	 *   6: L3 PTE invalid
++	 *   7: L3 PTE valid (full walk to kernel text OK)
++	 * plus +64s when the physmap L1 TTE is valid and +128s when it is a
++	 * table.  No reboot at all still means something else aborted, but
++	 * every in-walk fault is now converted into a signal.
 +	 */
 +	{
-+		unsigned long delay = 2;
-+		{
-+			unsigned long kva = (unsigned long)&unicorn_stage_vm;
-+			tt_entry_t l1e = cpu_tte[(kva >> ARM_TT_L1_SHIFT) & (TTE_PGENTRIES - 1)];
-+			if (l1e & ARM_TTE_VALID) {
-+				delay += 4;
-+				if ((l1e & ARM_TTE_TYPE_MASK) == ARM_TTE_TYPE_TABLE) {
-+					const unsigned long *l2 =
-+					    (const unsigned long *)(unsigned long)(l1e & ARM_TTE_TABLE_MASK);
++		unsigned long kva = (unsigned long)&unicorn_stage_vm;
++		const unsigned long win_lo = gPhysBase;
++		const unsigned long win_hi = gPhysBase + gPhysSize;
++		unsigned long depth = 0;
++		unsigned long delay;
++		tt_entry_t l1e = cpu_tte[(kva >> ARM_TT_L1_SHIFT) & (TTE_PGENTRIES - 1)];
++		if (l1e & ARM_TTE_VALID) {
++			depth = 1;
++			if ((l1e & ARM_TTE_TYPE_MASK) == ARM_TTE_TYPE_TABLE) {
++				unsigned long pa = l1e & ARM_TTE_TABLE_MASK;
++				if (pa >= win_lo && pa < win_hi) {
++					const unsigned long *l2 = (const unsigned long *)(unsigned long)pa;
 +					unsigned long l2e = l2[(kva >> ARM_TT_L2_SHIFT) & (TTE_PGENTRIES - 1)];
-+					delay += 8;
++					depth = 2;
 +					if (l2e & ARM_TTE_VALID) {
-+						delay += 16;
++						depth = 3;
 +						if ((l2e & ARM_TTE_TYPE_MASK) == ARM_TTE_TYPE_TABLE) {
-+							const unsigned long *l3 =
-+							    (const unsigned long *)(unsigned long)(l2e & ARM_TTE_TABLE_MASK);
-+							unsigned long pte = l3[(kva >> ARM_TT_L3_SHIFT) & (TTE_PGENTRIES - 1)];
-+							delay += 32;
-+							if (pte & ARM_TTE_VALID) {
-+								delay += 64;
++							pa = l2e & ARM_TTE_TABLE_MASK;
++							if (pa >= win_lo && pa < win_hi) {
++								const unsigned long *l3 =
++								    (const unsigned long *)(unsigned long)pa;
++								unsigned long pte =
++								    l3[(kva >> ARM_TT_L3_SHIFT) & (TTE_PGENTRIES - 1)];
++								depth = 5;
++								if (pte & ARM_TTE_VALID) {
++									depth = 7;
++								}
 +							}
 +						}
 +					}
 +				}
 +			}
 +		}
++		delay = 2 + 4 * depth;
 +		{
 +			unsigned long pmb = physmap_base;
 +			tt_entry_t pe = cpu_tte[(pmb >> ARM_TT_L1_SHIFT) & (TTE_PGENTRIES - 1)];
 +			if (pe & ARM_TTE_VALID) {
-+				delay += 128;
++				delay += 64;
++				if ((pe & ARM_TTE_TYPE_MASK) == ARM_TTE_TYPE_TABLE) {
++					delay += 128;
++				}
 +			}
 +		}
 +		{
