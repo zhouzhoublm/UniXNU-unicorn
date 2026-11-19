@@ -1,5 +1,5 @@
 diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
-index 1b30468..85b8b4d 100644
+index 1b30468..b5d8b82 100644
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
 @@ -64,8 +64,8 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
@@ -148,11 +148,12 @@ index 1b30468..85b8b4d 100644
  
  	/*
  	 * Initialize l2 page table pages :
-@@ -2442,11 +2535,13 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2442,11 +2535,14 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  #endif /* CONFIG_CPU_COUNTERS */
  
  	arm_set_user_tbi();
-+	unicorn_stage_col(5, 0xFFFFFFFF);
++	unicorn_stage_col(5, 0xFF25F0D8);
++	unicorn_stage_col(6, 0xFF00FF88);
  
  	unicorn_stage_vm(11, 0xFFFF7F00); /* before arm_vm_physmap_init */
  	arm_vm_physmap_init(args);
