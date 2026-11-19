@@ -1,5 +1,5 @@
 diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
-index 1b30468..51e2167 100644
+index 1b30468..3ae5048 100644
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
 @@ -64,8 +64,8 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
@@ -13,7 +13,7 @@ index 1b30468..51e2167 100644
  			fb[(y + dy) * stride + 64u + dx] = argb;
  		}
  	}
-@@ -73,6 +73,37 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
+@@ -73,6 +73,72 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
  }
  
  
@@ -30,6 +30,41 @@ index 1b30468..51e2167 100644
 + * no mapping there, and the walk aborted the kernel right before the
 + * TTBR1 switch.
 + */
++
++/*
++ * C14 minimal exception vectors: 16 entries x 0x80 bytes, all the same
++ * memory-less stub.  On any exception it waits 240s + 2s*((FAR>>24)&0x3f)
++ * and fires PSCI SYSTEM_RESET, so the adb-return timestamp reports both
++ * the fact and a coarse chunk of the faulting virtual address.
++ */
++extern char unicorn_mini_vectors[];
++
++__asm__(
++    ".text\n"
++    ".align 11\n"
++    ".globl _unicorn_mini_vectors\n"
++"_unicorn_mini_vectors:\n"
++    ".rept 16\n"
++    "  mrs x0, esr_el1\n"
++    "  mrs x1, far_el1\n"
++    "  ubfx x1, x1, #24, #6\n"
++    "  mrs x2, cntfrq_el0\n"
++    "  movz w3, #240\n"
++    "  add x3, x3, x1, lsl #1\n"
++    "  mul x3, x3, x2\n"
++    "  mrs x4, cntvct_el0\n"
++    "1: mrs x5, cntvct_el0\n"
++    "  sub x6, x5, x4\n"
++    "  cmp x6, x3\n"
++    "  b.lo 1b\n"
++    "  movz x0, #0x0009\n"
++    "  movk x0, #0x8400, lsl #16\n"
++    "  smc #0\n"
++    "2: wfi\n"
++    "  b 2b\n"
++    "  .space 0x80 - (17 * 4), 0\n"
++    ".endr\n"
++);
 +
 +static void
 +unicorn_stage_col(unsigned int n, unsigned int argb)
@@ -51,7 +86,7 @@ index 1b30468..51e2167 100644
  #if __ARM_KERNEL_PROTECT__
  /*
   * If we want to support __ARM_KERNEL_PROTECT__, we need a sufficient amount of
-@@ -2257,6 +2288,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2257,6 +2323,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  	cpu_tte = (tt_entry_t *)alloc_ptpage(TRUE);
  	cpu_ttep = kvtophys((vm_offset_t)cpu_tte);
  	bzero(cpu_tte, ARM_PGBYTES);
@@ -59,7 +94,7 @@ index 1b30468..51e2167 100644
  	avail_end = gPhysBase + gPhysSize; /* bootstrap allocations stay in the primary bank */
  	assert(!(avail_end & PAGE_MASK));
  
-@@ -2274,6 +2306,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2274,6 +2341,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  	 *   the so called physical aperture should be statically mapped
  	 */
  	init_ptpages(cpu_tte, gVirtBase, dynamic_memory_begin, TRUE, ARM_TTE_TABLE_AP(ARM_TTE_TABLE_AP_USER_NA));
@@ -67,7 +102,7 @@ index 1b30468..51e2167 100644
  
  #if defined(ARM_LARGE_MEMORY)
  	/*
-@@ -2364,6 +2397,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2364,6 +2432,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  	}
  
  	(void) PE_parse_boot_argn("use_contiguous_hint", &use_contiguous_hint, sizeof(use_contiguous_hint));
@@ -75,7 +110,7 @@ index 1b30468..51e2167 100644
  	assert(segSizePRELINKTEXT < 0x03000000); /* 23355738 */
  
  	/* if one of the new segments is present, the other one better be as well */
-@@ -2375,6 +2409,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2375,6 +2444,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  	sdata = (vm_offset_t) segDATAB;
  	edata = (vm_offset_t) segDATAB + segSizeDATA;
  	end_kern = round_page(segHIGHESTKC ? segHIGHESTKC : getlastkerneladdr()); /* Force end to next page */
@@ -83,7 +118,7 @@ index 1b30468..51e2167 100644
  
  	vm_set_page_size();
  
-@@ -2410,6 +2445,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2410,6 +2480,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  	ptpage_vaddr = alloc_ptpage(TRUE);
  	*cpu_l2_tte = (kvtophys(ptpage_vaddr) & ARM_TTE_TABLE_MASK) | ARM_TTE_TYPE_TABLE | ARM_TTE_VALID | ARM_TTE_TABLE_PXN | ARM_TTE_TABLE_XN;
  	bzero((void *)ptpage_vaddr, ARM_PGBYTES);
@@ -91,7 +126,7 @@ index 1b30468..51e2167 100644
  
  	/*
  	 * Initialize l2 page table pages :
-@@ -2442,13 +2478,101 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2442,13 +2513,115 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  #endif /* CONFIG_CPU_COUNTERS */
  
  	arm_set_user_tbi();
@@ -103,6 +138,20 @@ index 1b30468..51e2167 100644
  	unicorn_stage_vm(12, 0xFF7F00FF); /* arm_vm_physmap_init returned */
  	unicorn_stage_vm(10, 0xFFFF00FF); /* bootstrap tables built, about to switch */
 +	unicorn_stage_vm(8, 0xFFFF8000); /* C7: pre-switch marker, overwrites slot 8 blue with orange */
++
++	/*
++	 * C14: catch-all fault reporting.  C13's guarded walk still produced
++	 * no reset, so something faults outside the guarded reads.  Install a
++	 * minimal 16-entry exception vector whose stub performs no memory
++	 * access at all: it reads ESR_EL1/FAR_EL1, waits
++	 * 240s + 2s*((FAR>>24)&0x3f), then fires PSCI SYSTEM_RESET.  Every
++	 * abort between here and the end of the inspection now terminates in
++	 * a decodable reboot instead of a silent hang.  The guarded walk
++	 * below keeps its own encoding (2s + 4s*depth, +64s/+128s physmap
++	 * bits) for the no-fault path.
++	 */
++	__asm__ volatile ("msr vbar_el1, %0" :: "r" ((unsigned long)&unicorn_mini_vectors) : "memory");
++	__asm__ volatile ("isb sy" ::: "memory");
 +
 +	/*
 +	 * C13: fault-guarded walk, depth-encoded.  C12 timed out because a
