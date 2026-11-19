@@ -166,3 +166,32 @@ index 1b30468..5a94b60 100644
  	enable_preemption();
  }
  
+diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
+--- a/osfmk/arm/arm_init.c
++++ b/osfmk/arm/arm_init.c
+@@ -690,7 +690,8 @@ arm_init(
+ 		(void)switch_to_serial_console(); /* Switch into serial mode from video console */
+ 		disableConsoleOutput = FALSE;     /* Allow printfs to happen */
+ 	}
+ 	PE_create_console();
++	unicorn_stage_phys(16, 0xFF00FFFF); /* console up */
+ 
+ 	/* setup console output */
+ 	PE_init_printf(FALSE);
+@@ -704,6 +730,7 @@ arm_init(
+ 	cpu_machine_idle_init(TRUE);
+ 
+ 	PE_init_platform(TRUE, &BootCpuData);
++	unicorn_stage_phys(17, 0xFF00FF7F); /* pong platform expert up */
+ 
+ 	/* Initialize the debug infrastructure system-wide and on the local core. */
+ 	pe_arm_debug_init_early(&BootCpuData);
+@@ -751,7 +777,8 @@ arm_init(
+ 	__stack_chk_guard = (unsigned long)early_random();
+ 	/* Zero a byte of the protector to guard
+ 	 * against string vulnerabilities
+ 	 */
+ 	__stack_chk_guard &= ~(0xFFULL << 8);
++	unicorn_stage_phys(18, 0xFFFFFF00); /* about to run machine_startup */
+ 	machine_startup(args);
+ }
