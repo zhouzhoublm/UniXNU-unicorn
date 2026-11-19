@@ -1,5 +1,5 @@
 diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
-index 1b30468..5a94b60 100644
+index 1b30468..db3b5e7 100644
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
 @@ -64,8 +64,69 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
@@ -131,9 +131,9 @@ index 1b30468..5a94b60 100644
 +	 * breadcrumb rows up to ~2000.
 +	 */
 +	unicorn_fb_va = (physmap_end + ARM_TT_L2_OFFMASK) & ~ARM_TT_L2_OFFMASK;
-+	init_ptpages(cpu_tte, unicorn_fb_va, unicorn_fb_va + 6 * ARM_TT_L2_SIZE, FALSE,
++	init_ptpages(cpu_tte, unicorn_fb_va, unicorn_fb_va + 7 * ARM_TT_L2_SIZE, FALSE,
 +	    ARM_DYNAMIC_TABLE_XN | ARM_TTE_TABLE_AP(ARM_TTE_TABLE_AP_USER_NA));
-+	for (unsigned long i = 0; i < 6; i++) {
++	for (unsigned long i = 0; i < 7; i++) {
 +		tt_entry_t *tte2 = arm_kva_to_tte(unicorn_fb_va + i * ARM_TT_L2_SIZE);
 +		*tte2 = ((0xB8000000ULL + i * ARM_TT_L2_SIZE) & ARM_TTE_BLOCK_L2_MASK)
 +		    | ARM_TTE_TYPE_BLOCK | ARM_TTE_VALID | ARM_TTE_BLOCK_AF | ARM_TTE_BLOCK_PNX
@@ -169,30 +169,46 @@ index 1b30468..5a94b60 100644
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -690,7 +691,9 @@ arm_init(
- 		(void)switch_to_serial_console(); /* Switch into serial mode from video console */
- 		disableConsoleOutput = FALSE;     /* Allow printfs to happen */
- 	}
- 	PE_create_console();
-+	extern void unicorn_stage_phys(unsigned int slot, unsigned int argb);
-+	unicorn_stage_phys(16, 0xFF00FFFF); /* console up */
- 
- 	/* setup console output */
- 	PE_init_printf(FALSE);
-@@ -704,6 +730,7 @@ arm_init(
+@@ -679,36 +679,42 @@ arm_init(
+
  	cpu_machine_idle_init(TRUE);
- 
+
  	PE_init_platform(TRUE, &BootCpuData);
-+	unicorn_stage_phys(17, 0xFF00FF7F); /* pong platform expert up */
- 
+ 	unicorn_stage_phys(17, 0xFF00FF7F); /* pong platform expert up */
++	unicorn_stage_phys(19, 0xFF7F00FF); /* pong platform returned */
+
  	/* Initialize the debug infrastructure system-wide and on the local core. */
  	pe_arm_debug_init_early(&BootCpuData);
-@@ -751,7 +777,8 @@ arm_init(
- 	__stack_chk_guard = (unsigned long)early_random();
- 	/* Zero a byte of the protector to guard
- 	 * against string vulnerabilities
- 	 */
- 	__stack_chk_guard &= ~(0xFFULL << 8);
-+	unicorn_stage_phys(18, 0xFFFFFF00); /* about to run machine_startup */
- 	machine_startup(args);
- }
++	unicorn_stage_phys(20, 0xFF00FFFF); /* debug early init */
+
+ #if __arm64__
+ 	extern bool cpu_config_correct;
+ 	if (!cpu_config_correct) {
+ 		panic("The cpumask=N boot arg cannot be used together with cpus=N, and the boot CPU must be enabled");
+ 	}
+
+ 	ml_map_cpu_pio();
++	unicorn_stage_phys(21, 0xFF00FF7F); /* cpu PIO mapped */
+
+ #if APPLE_ARM64_ARCH_FAMILY
+ 	configure_late_apple_regs(true);
+ #endif
+
+ #endif
+
+ 	cpu_timebase_init(TRUE);
++	unicorn_stage_phys(22, 0xFFFFFF00); /* timebase init */
+
+ #if KPERF
+ 	/* kptimer_curcpu_up() must be called after cpu_timebase_init */
+ 	kptimer_curcpu_up();
+ #endif /* KPERF */
+
+ 	PE_init_cpu();
++	unicorn_stage_phys(23, 0xFF7F00FF); /* PE_init_cpu */
+ #if __arm64__
+ 	apt_msg_init();
+ 	apt_msg_init_cpu();
+ #endif
+ 	fiq_context_init(TRUE);
++	unicorn_stage_phys(24, 0xFFFF00FF); /* fiq context init */
