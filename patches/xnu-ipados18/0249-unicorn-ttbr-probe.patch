@@ -1,20 +1,35 @@
 diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
-index 1b30468..eddfff2 100644
+index 1b30468..1983460 100644
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
-@@ -73,6 +73,84 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
+@@ -73,6 +73,94 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
  }
  
  
 +/*
-+ * Unicorn pre-switch probe: walk the freshly built TTBR1 tables (cpu_tte)
-+ * for the two addresses the switch depends on (the code it returns into and
-+ * the stack it unwinds through), and characterize TCR_EL1.  One breadcrumb
-+ * per check; an absent square means that check failed.  Runs strictly before
-+ * set_mmu_ttb_alternate(), while the boot-time TTBR1 is still installed, so
-+ * every probe executes in a regime that can still paint the framebuffer.
++ * Unicorn pre-switch diagnostics.  Column 2 (x=192) breadcrumbs mark the
++ * arm_vm_init middle region (root table alloc, physmap tables, segment
++ * extraction, low globals); column 1 slots 14-22 walk the freshly built
++ * TTBR1 tables for the PC/stack and characterize TCR_EL1 right before the
++ * switch.  An absent square means that step never completed.
 + */
 +extern uint8_t bootstrap_pagetables[];
++
++static void
++unicorn_stage_col(unsigned int n, unsigned int argb)
++{
++	volatile unsigned int *fb = (volatile unsigned int *)(unsigned long)0xB8000000UL;
++	unsigned int stride = 5760u / 4u;
++	unsigned int y = 240u + n * 80u;
++	unsigned int dy, dx;
++
++	for (dy = 0u; dy < 32u; dy++) {
++		for (dx = 0u; dx < 32u; dx++) {
++			fb[(y + dy) * stride + 192u + dx] = argb;
++		}
++	}
++	__asm__ volatile ("dsb sy" ::: "memory");
++}
 +
 +static void
 +unicorn_probe_walk(unsigned long va, unsigned int slot_l1, unsigned int slot_l2,
@@ -55,14 +70,11 @@ index 1b30468..eddfff2 100644
 +	unsigned long	t1sz;
 +	unsigned int		i;
 +
-+	/* where the switch returns into: kernelcache text */
 +	unicorn_probe_walk((unsigned long)probe_pc, 14, 15, 16, 0xFF00FFFF);
-+	/* the stack the switch unwinds through */
 +	unicorn_probe_walk((unsigned long)probe_fp, 17, 18, 19, 0xFF00FF00);
 +
 +	__asm__ volatile ("mrs %0, tcr_el1" : "=r" (tcr));
 +
-+	/* TG1 (bits 31:30): this 4K-native build expects 4KB (2) */
 +	if (((tcr >> 30) & 3ULL) == TCR_TG1_GRANULE_4KB) {
 +		unicorn_stage_vm(20, 0xFFFFFFFF);
 +	}
@@ -70,11 +82,9 @@ index 1b30468..eddfff2 100644
 +	if (t1sz == T1SZ_BOOT) {
 +		unicorn_stage_vm(21, 0xFF8080FF);
 +	}
-+	/* the switch installs a distinct table, not the boot tables again */
 +	if (cpu_ttep != kvtophys((vm_offset_t)bootstrap_pagetables)) {
 +		unicorn_stage_vm(22, 0xFFFF00FF);
 +	}
-+	/* T1SZ bits 0..5, one square per set bit (slots 23..28) */
 +	for (i = 0; i < 6; i++) {
 +		if (t1sz & (1ULL << i)) {
 +			unicorn_stage_vm(23 + i, 0xFF7F7F7F);
@@ -87,7 +97,53 @@ index 1b30468..eddfff2 100644
  #if __ARM_KERNEL_PROTECT__
  /*
   * If we want to support __ARM_KERNEL_PROTECT__, we need a sufficient amount of
-@@ -2447,6 +2525,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2257,6 +2345,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+ 	cpu_tte = (tt_entry_t *)alloc_ptpage(TRUE);
+ 	cpu_ttep = kvtophys((vm_offset_t)cpu_tte);
+ 	bzero(cpu_tte, ARM_PGBYTES);
++	unicorn_stage_col(0, 0xFF00FFFF);
+ 	avail_end = gPhysBase + gPhysSize; /* bootstrap allocations stay in the primary bank */
+ 	assert(!(avail_end & PAGE_MASK));
+ 
+@@ -2274,6 +2363,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+ 	 *   the so called physical aperture should be statically mapped
+ 	 */
+ 	init_ptpages(cpu_tte, gVirtBase, dynamic_memory_begin, TRUE, ARM_TTE_TABLE_AP(ARM_TTE_TABLE_AP_USER_NA));
++	unicorn_stage_col(1, 0xFF00FF7F);
+ 
+ #if defined(ARM_LARGE_MEMORY)
+ 	/*
+@@ -2364,6 +2454,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+ 	}
+ 
+ 	(void) PE_parse_boot_argn("use_contiguous_hint", &use_contiguous_hint, sizeof(use_contiguous_hint));
++	unicorn_stage_col(2, 0xFFFFFF00);
+ 	assert(segSizePRELINKTEXT < 0x03000000); /* 23355738 */
+ 
+ 	/* if one of the new segments is present, the other one better be as well */
+@@ -2375,6 +2466,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+ 	sdata = (vm_offset_t) segDATAB;
+ 	edata = (vm_offset_t) segDATAB + segSizeDATA;
+ 	end_kern = round_page(segHIGHESTKC ? segHIGHESTKC : getlastkerneladdr()); /* Force end to next page */
++	unicorn_stage_col(3, 0xFFFF8000);
+ 
+ 	vm_set_page_size();
+ 
+@@ -2410,6 +2502,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+ 	ptpage_vaddr = alloc_ptpage(TRUE);
+ 	*cpu_l2_tte = (kvtophys(ptpage_vaddr) & ARM_TTE_TABLE_MASK) | ARM_TTE_TYPE_TABLE | ARM_TTE_VALID | ARM_TTE_TABLE_PXN | ARM_TTE_TABLE_XN;
+ 	bzero((void *)ptpage_vaddr, ARM_PGBYTES);
++	unicorn_stage_col(4, 0xFFFF00FF);
+ 
+ 	/*
+ 	 * Initialize l2 page table pages :
+@@ -2442,11 +2535,13 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+ #endif /* CONFIG_CPU_COUNTERS */
+ 
+ 	arm_set_user_tbi();
++	unicorn_stage_col(5, 0xFFFFFFFF);
+ 
+ 	unicorn_stage_vm(11, 0xFFFF7F00); /* before arm_vm_physmap_init */
  	arm_vm_physmap_init(args);
  	unicorn_stage_vm(12, 0xFF7F00FF); /* arm_vm_physmap_init returned */
  	unicorn_stage_vm(10, 0xFFFF00FF); /* bootstrap tables built, about to switch */
