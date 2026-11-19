@@ -1,5 +1,5 @@
 diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
-index 1b30468..963df61 100644
+index 1b30468..dafb019 100644
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
 @@ -64,8 +64,8 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
@@ -126,7 +126,7 @@ index 1b30468..963df61 100644
  
  	/*
  	 * Initialize l2 page table pages :
-@@ -2442,13 +2513,109 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2442,13 +2513,15 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  #endif /* CONFIG_CPU_COUNTERS */
  
  	arm_set_user_tbi();
@@ -138,102 +138,8 @@ index 1b30468..963df61 100644
  	unicorn_stage_vm(12, 0xFF7F00FF); /* arm_vm_physmap_init returned */
  	unicorn_stage_vm(10, 0xFFFF00FF); /* bootstrap tables built, about to switch */
 +	unicorn_stage_vm(8, 0xFFFF8000); /* C7: pre-switch marker, overwrites slot 8 blue with orange */
-+
-+	/*
-+	 * C14: catch-all fault reporting.  C13's guarded walk still produced
-+	 * no reset, so something faults outside the guarded reads.  Install a
-+	 * minimal 16-entry exception vector whose stub performs no memory
-+	 * access at all: it reads ESR_EL1/FAR_EL1, waits
-+	 * 240s + 2s*((FAR>>24)&0x3f), then fires PSCI SYSTEM_RESET.  Every
-+	 * abort between here and the end of the post-switch inspection now
-+	 * terminates in a decodable reboot instead of a silent hang.  The
-+	 * post-switch walk below keeps its own encoding (2s + 4s*depth,
-+	 * +64s/+128s physmap bits) for the no-fault path.
-+	 */
-+	__asm__ volatile ("msr vbar_el1, %0" :: "r" ((unsigned long)&unicorn_mini_vectors) : "memory");
-+	__asm__ volatile ("isb sy" ::: "memory");
-+
  	set_mmu_ttb_alternate(cpu_ttep & TTBR_BADDR_MASK);
 -	unicorn_stage_vm(13, 0xFFFF00A5); /* TTBR1 installed */
-+
-+	/*
-+	 * C16: post-switch verdict, CORRECT L1 indexing.  C15's walk used a
-+	 * 9-bit L1 index while this kernel is native-4K with
-+	 * __ARM64_PMAP_SUBPAGE_L1__ -- ARM_4K_TT_L1_INDEX_MASK is 0x3fc0000000,
-+	 * i.e. only 8 index bits (the mapping code writes via
-+	 * L1_TABLE_INDEX()).  The C15 "invalid L1" reading was the probe's own
-+	 * bug; the tables are probably fine.  Use the real L1/L2/L3_TABLE_INDEX
-+	 * macros now and run the whole verdict AFTER the switch: a reboot here
-+	 * with depth 7 proves the TTBR1 switch survived with working tables.
-+	 * The V=P tables are still active in TTBR0 (set_mmu_ttb(invalid_ttep)
-+	 * comes later), so PA-as-VA reads of the table pages stay valid, and
-+	 * the vectors installed before the switch catch any abort.
-+	 */
-+	{
-+		unsigned long kva = (unsigned long)&unicorn_stage_vm;
-+		const unsigned long win_lo = gPhysBase;
-+		const unsigned long win_hi = gPhysBase + gPhysSize;
-+		unsigned long depth = 0;
-+		unsigned long delay;
-+		tt_entry_t l1e = cpu_tte[L1_TABLE_INDEX(kva)];
-+		if (l1e & ARM_TTE_VALID) {
-+			depth = 1;
-+			if ((l1e & ARM_TTE_TYPE_MASK) == ARM_TTE_TYPE_TABLE) {
-+				unsigned long pa = l1e & ARM_TTE_TABLE_MASK;
-+				if (pa >= win_lo && pa < win_hi) {
-+					const unsigned long *l2 = (const unsigned long *)(unsigned long)pa;
-+					unsigned long l2e = l2[L2_TABLE_INDEX(kva)];
-+					depth = 2;
-+					if (l2e & ARM_TTE_VALID) {
-+						depth = 3;
-+						if ((l2e & ARM_TTE_TYPE_MASK) == ARM_TTE_TYPE_TABLE) {
-+							pa = l2e & ARM_TTE_TABLE_MASK;
-+							if (pa >= win_lo && pa < win_hi) {
-+								const unsigned long *l3 =
-+								    (const unsigned long *)(unsigned long)pa;
-+								unsigned long pte = l3[L3_TABLE_INDEX(kva)];
-+								depth = 5;
-+								if (pte & ARM_TTE_VALID) {
-+									depth = 7;
-+								}
-+							}
-+						}
-+					}
-+				}
-+			}
-+		}
-+		delay = 2 + 4 * depth;
-+		{
-+			unsigned long pmb = physmap_base;
-+			tt_entry_t pe = cpu_tte[L1_TABLE_INDEX(pmb)];
-+			if (pe & ARM_TTE_VALID) {
-+				delay += 64;
-+				if ((pe & ARM_TTE_TYPE_MASK) == ARM_TTE_TYPE_TABLE) {
-+					delay += 128;
-+				}
-+			}
-+		}
-+		{
-+			unsigned long freq, t0, t;
-+			__asm__ volatile ("mrs %0, cntfrq_el0" : "=r" (freq));
-+			__asm__ volatile ("mrs %0, cntvct_el0" : "=r" (t0));
-+			do {
-+				__asm__ volatile ("mrs %0, cntvct_el0" : "=r" (t));
-+			} while ((t - t0) < freq * delay);
-+		}
-+		{
-+			register unsigned long x0 __asm__("x0") = 0x84000009UL;
-+			register unsigned long x1 __asm__("x1") = 0;
-+			register unsigned long x2 __asm__("x2") = 0;
-+			register unsigned long x3 __asm__("x3") = 0;
-+			__asm__ volatile ("smc #0" : "+r" (x0)
-+			    : "r" (x1), "r" (x2), "r" (x3)
-+			    : "memory", "cc");
-+		}
-+		for (;;) {
-+			__asm__ volatile ("wfi");
-+		}
-+	}
  
  #if XNU_MONITOR
  	ml_enable_monitor();
