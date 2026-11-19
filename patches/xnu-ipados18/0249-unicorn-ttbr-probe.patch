@@ -1,5 +1,5 @@
 diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
-index 1b30468..3ae5048 100644
+index 1b30468..963df61 100644
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
 @@ -64,8 +64,8 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
@@ -126,7 +126,7 @@ index 1b30468..3ae5048 100644
  
  	/*
  	 * Initialize l2 page table pages :
-@@ -2442,13 +2513,115 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2442,13 +2513,109 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  #endif /* CONFIG_CPU_COUNTERS */
  
  	arm_set_user_tbi();
@@ -145,31 +145,29 @@ index 1b30468..3ae5048 100644
 +	 * minimal 16-entry exception vector whose stub performs no memory
 +	 * access at all: it reads ESR_EL1/FAR_EL1, waits
 +	 * 240s + 2s*((FAR>>24)&0x3f), then fires PSCI SYSTEM_RESET.  Every
-+	 * abort between here and the end of the inspection now terminates in
-+	 * a decodable reboot instead of a silent hang.  The guarded walk
-+	 * below keeps its own encoding (2s + 4s*depth, +64s/+128s physmap
-+	 * bits) for the no-fault path.
++	 * abort between here and the end of the post-switch inspection now
++	 * terminates in a decodable reboot instead of a silent hang.  The
++	 * post-switch walk below keeps its own encoding (2s + 4s*depth,
++	 * +64s/+128s physmap bits) for the no-fault path.
 +	 */
 +	__asm__ volatile ("msr vbar_el1, %0" :: "r" ((unsigned long)&unicorn_mini_vectors) : "memory");
 +	__asm__ volatile ("isb sy" ::: "memory");
 +
+ 	set_mmu_ttb_alternate(cpu_ttep & TTBR_BADDR_MASK);
+-	unicorn_stage_vm(13, 0xFFFF00A5); /* TTBR1 installed */
++
 +	/*
-+	 * C13: fault-guarded walk, depth-encoded.  C12 timed out because a
-+	 * walk step dereferenced a table PA outside the owned window (V=P
-+	 * unmapped) and aborted before the reset.  Now every table PA is
-+	 * range-checked first, and the walk DEPTH is encoded in the reset
-+	 * delay: delay = 2 + 4*depth, where
-+	 *   0: kernel-text L1 TTE invalid
-+	 *   1: L1 valid, not a table
-+	 *   2: L1 table PA outside the owned window
-+	 *   3: L2 TTE invalid
-+	 *   4: L2 valid, not a table
-+	 *   5: L2 table PA outside the owned window
-+	 *   6: L3 PTE invalid
-+	 *   7: L3 PTE valid (full walk to kernel text OK)
-+	 * plus +64s when the physmap L1 TTE is valid and +128s when it is a
-+	 * table.  No reboot at all still means something else aborted, but
-+	 * every in-walk fault is now converted into a signal.
++	 * C16: post-switch verdict, CORRECT L1 indexing.  C15's walk used a
++	 * 9-bit L1 index while this kernel is native-4K with
++	 * __ARM64_PMAP_SUBPAGE_L1__ -- ARM_4K_TT_L1_INDEX_MASK is 0x3fc0000000,
++	 * i.e. only 8 index bits (the mapping code writes via
++	 * L1_TABLE_INDEX()).  The C15 "invalid L1" reading was the probe's own
++	 * bug; the tables are probably fine.  Use the real L1/L2/L3_TABLE_INDEX
++	 * macros now and run the whole verdict AFTER the switch: a reboot here
++	 * with depth 7 proves the TTBR1 switch survived with working tables.
++	 * The V=P tables are still active in TTBR0 (set_mmu_ttb(invalid_ttep)
++	 * comes later), so PA-as-VA reads of the table pages stay valid, and
++	 * the vectors installed before the switch catch any abort.
 +	 */
 +	{
 +		unsigned long kva = (unsigned long)&unicorn_stage_vm;
@@ -177,14 +175,14 @@ index 1b30468..3ae5048 100644
 +		const unsigned long win_hi = gPhysBase + gPhysSize;
 +		unsigned long depth = 0;
 +		unsigned long delay;
-+		tt_entry_t l1e = cpu_tte[(kva >> ARM_TT_L1_SHIFT) & (TTE_PGENTRIES - 1)];
++		tt_entry_t l1e = cpu_tte[L1_TABLE_INDEX(kva)];
 +		if (l1e & ARM_TTE_VALID) {
 +			depth = 1;
 +			if ((l1e & ARM_TTE_TYPE_MASK) == ARM_TTE_TYPE_TABLE) {
 +				unsigned long pa = l1e & ARM_TTE_TABLE_MASK;
 +				if (pa >= win_lo && pa < win_hi) {
 +					const unsigned long *l2 = (const unsigned long *)(unsigned long)pa;
-+					unsigned long l2e = l2[(kva >> ARM_TT_L2_SHIFT) & (TTE_PGENTRIES - 1)];
++					unsigned long l2e = l2[L2_TABLE_INDEX(kva)];
 +					depth = 2;
 +					if (l2e & ARM_TTE_VALID) {
 +						depth = 3;
@@ -193,8 +191,7 @@ index 1b30468..3ae5048 100644
 +							if (pa >= win_lo && pa < win_hi) {
 +								const unsigned long *l3 =
 +								    (const unsigned long *)(unsigned long)pa;
-+								unsigned long pte =
-+								    l3[(kva >> ARM_TT_L3_SHIFT) & (TTE_PGENTRIES - 1)];
++								unsigned long pte = l3[L3_TABLE_INDEX(kva)];
 +								depth = 5;
 +								if (pte & ARM_TTE_VALID) {
 +									depth = 7;
@@ -208,7 +205,7 @@ index 1b30468..3ae5048 100644
 +		delay = 2 + 4 * depth;
 +		{
 +			unsigned long pmb = physmap_base;
-+			tt_entry_t pe = cpu_tte[(pmb >> ARM_TT_L1_SHIFT) & (TTE_PGENTRIES - 1)];
++			tt_entry_t pe = cpu_tte[L1_TABLE_INDEX(pmb)];
 +			if (pe & ARM_TTE_VALID) {
 +				delay += 64;
 +				if ((pe & ARM_TTE_TYPE_MASK) == ARM_TTE_TYPE_TABLE) {
@@ -237,9 +234,6 @@ index 1b30468..3ae5048 100644
 +			__asm__ volatile ("wfi");
 +		}
 +	}
-+
- 	set_mmu_ttb_alternate(cpu_ttep & TTBR_BADDR_MASK);
--	unicorn_stage_vm(13, 0xFFFF00A5); /* TTBR1 installed */
  
  #if XNU_MONITOR
  	ml_enable_monitor();
