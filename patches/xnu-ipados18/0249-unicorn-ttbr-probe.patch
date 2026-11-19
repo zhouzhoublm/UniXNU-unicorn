@@ -1,5 +1,5 @@
 diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
-index 1b30468..05310d6 100644
+index 1b30468..b1fe77d 100644
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
 @@ -64,8 +64,8 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
@@ -13,7 +13,7 @@ index 1b30468..05310d6 100644
  			fb[(y + dy) * stride + 64u + dx] = argb;
  		}
  	}
-@@ -73,6 +73,108 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
+@@ -73,6 +73,111 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
  }
  
  
@@ -92,29 +92,32 @@ index 1b30468..05310d6 100644
 + * adb-return timestamp reports the exception class EC).  No memory access
 + * at all: safe in any MMU state, including mid-wedge.
 + */
-+void unicorn_mini_vectors(void);
++extern char unicorn_mini_vectors[];
 +
 +__asm__(
 +    ".text\n"
-+    ".align 12, 0x0\n"
-+    "_unicorn_mini_vectors:\n"
++    ".align 11\n"
++    ".globl _unicorn_mini_vectors\n"
++"_unicorn_mini_vectors:\n"
 +    ".rept 16\n"
 +    "  msr daifset, #0xf\n"
 +    "  mrs x0, esr_el1\n"
 +    "  ubfx x0, x0, #26, #6\n"
-+    "  add x0, x0, #60\n"
-+    "  lsl x0, x0, #2\n"               /* seconds = (60 + EC) * 4 = 240 + 4*EC */
-+    "  mrs x1, cntfrq_el0\n"
-+    "  mul x0, x0, x1\n"               /* ticks */
-+    "  mrs x2, cntvct_el0\n"
-+    "  add x2, x2, x0\n"
-+    "1: mrs x3, cntvct_el0\n"
-+    "  cmp x3, x2\n"
-+    "  b.lt 1b\n"
-+    "  mov x0, #0x84000009\n"
++    "  movz w3, #240\n"
++    "  add x3, x3, x0, lsl #2\n"
++    "  mrs x2, cntfrq_el0\n"
++    "  mul x3, x3, x2\n"
++    "  mrs x4, cntvct_el0\n"
++    "1: mrs x5, cntvct_el0\n"
++    "  sub x6, x5, x4\n"
++    "  cmp x6, x3\n"
++    "  b.lo 1b\n"
++    "  movz x0, #0x0009\n"
++    "  movk x0, #0x8400, lsl #16\n"
 +    "  smc #0\n"
 +    "2: wfi\n"
 +    "  b 2b\n"
++    "  .space 0x80 - (16 * 4), 0\n"
 +    ".endr\n"
 +);
 +
@@ -122,7 +125,7 @@ index 1b30468..05310d6 100644
  #if __ARM_KERNEL_PROTECT__
  /*
   * If we want to support __ARM_KERNEL_PROTECT__, we need a sufficient amount of
-@@ -2257,6 +2359,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2257,6 +2362,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  	cpu_tte = (tt_entry_t *)alloc_ptpage(TRUE);
  	cpu_ttep = kvtophys((vm_offset_t)cpu_tte);
  	bzero(cpu_tte, ARM_PGBYTES);
@@ -130,7 +133,7 @@ index 1b30468..05310d6 100644
  	avail_end = gPhysBase + gPhysSize; /* bootstrap allocations stay in the primary bank */
  	assert(!(avail_end & PAGE_MASK));
  
-@@ -2274,6 +2377,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2274,6 +2380,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  	 *   the so called physical aperture should be statically mapped
  	 */
  	init_ptpages(cpu_tte, gVirtBase, dynamic_memory_begin, TRUE, ARM_TTE_TABLE_AP(ARM_TTE_TABLE_AP_USER_NA));
@@ -138,7 +141,7 @@ index 1b30468..05310d6 100644
  
  #if defined(ARM_LARGE_MEMORY)
  	/*
-@@ -2364,6 +2468,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2364,6 +2471,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  	}
  
  	(void) PE_parse_boot_argn("use_contiguous_hint", &use_contiguous_hint, sizeof(use_contiguous_hint));
@@ -146,7 +149,7 @@ index 1b30468..05310d6 100644
  	assert(segSizePRELINKTEXT < 0x03000000); /* 23355738 */
  
  	/* if one of the new segments is present, the other one better be as well */
-@@ -2375,6 +2480,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2375,6 +2483,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  	sdata = (vm_offset_t) segDATAB;
  	edata = (vm_offset_t) segDATAB + segSizeDATA;
  	end_kern = round_page(segHIGHESTKC ? segHIGHESTKC : getlastkerneladdr()); /* Force end to next page */
@@ -154,7 +157,7 @@ index 1b30468..05310d6 100644
  
  	vm_set_page_size();
  
-@@ -2410,6 +2516,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2410,6 +2519,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  	ptpage_vaddr = alloc_ptpage(TRUE);
  	*cpu_l2_tte = (kvtophys(ptpage_vaddr) & ARM_TTE_TABLE_MASK) | ARM_TTE_TYPE_TABLE | ARM_TTE_VALID | ARM_TTE_TABLE_PXN | ARM_TTE_TABLE_XN;
  	bzero((void *)ptpage_vaddr, ARM_PGBYTES);
@@ -162,7 +165,7 @@ index 1b30468..05310d6 100644
  
  	/*
  	 * Initialize l2 page table pages :
-@@ -2442,13 +2549,34 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2442,13 +2552,34 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  #endif /* CONFIG_CPU_COUNTERS */
  
  	arm_set_user_tbi();
@@ -198,7 +201,7 @@ index 1b30468..05310d6 100644
  
  #if XNU_MONITOR
  	ml_enable_monitor();
-@@ -2458,6 +2586,16 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2458,6 +2589,16 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  
  	flush_mmu_tlb();
  	kva_active = TRUE;
@@ -209,13 +212,13 @@ index 1b30468..05310d6 100644
 +	 * machine_startup every abort reports its exception class through the
 +	 * PSCI reset timing (240s + 4s*EC) instead of hanging silently.
 +	 */
-+	__asm__ volatile ("msr vbar_el1, %0" :: "r" ((unsigned long)&unicorn_mini_vectors) : "memory");
++	__asm__ volatile ("msr vbar_el1, %0" :: "r" ((unsigned long)unicorn_mini_vectors) : "memory");
 +	__asm__ volatile ("isb sy" ::: "memory");
 +
  	// global table pointers may need to be different due to physical aperture remapping
  	cpu_tte = (tt_entry_t*)(phystokv(cpu_ttep));
  	invalid_tte = (tt_entry_t*)(phystokv(invalid_ttep));
-@@ -2679,6 +2817,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2679,6 +2820,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  #endif
  	first_avail = avail_start;
  	patch_low_glo_static_region(args->topOfKernelData, avail_start - args->topOfKernelData);
