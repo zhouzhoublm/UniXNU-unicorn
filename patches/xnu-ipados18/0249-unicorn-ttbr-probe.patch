@@ -1,7 +1,18 @@
 diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
-index 1b30468..1983460 100644
+index 1b30468..85b8b4d 100644
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
+@@ -64,8 +64,8 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
+ 	unsigned int y = 240u + slot * 80u;
+ 	unsigned int dy, dx;
+ 
+-	for (dy = 0u; dy < 32u; dy++) {
+-		for (dx = 0u; dx < 32u; dx++) {
++	for (dy = 0u; dy < 72u; dy++) {
++		for (dx = 0u; dx < 72u; dx++) {
+ 			fb[(y + dy) * stride + 64u + dx] = argb;
+ 		}
+ 	}
 @@ -73,6 +73,94 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
  }
  
@@ -23,8 +34,8 @@ index 1b30468..1983460 100644
 +	unsigned int y = 240u + n * 80u;
 +	unsigned int dy, dx;
 +
-+	for (dy = 0u; dy < 32u; dy++) {
-+		for (dx = 0u; dx < 32u; dx++) {
++	for (dy = 0u; dy < 72u; dy++) {
++		for (dx = 0u; dx < 72u; dx++) {
 +			fb[(y + dy) * stride + 192u + dx] = argb;
 +		}
 +	}
