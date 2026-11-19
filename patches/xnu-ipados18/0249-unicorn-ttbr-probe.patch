@@ -169,8 +169,9 @@ index 1b30468..db3b5e7 100644
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -630,128 +630,138 @@ arm_init(
+@@ -630,128 +630,139 @@ arm_init(
  	arm_vm_init(xmaxmem, args);
++	extern void unicorn_stage_phys(unsigned int slot, unsigned int argb);
 +	unicorn_stage_phys(25, 0xFF00A5FF); /* arm_vm_init returned */
 
  #if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
