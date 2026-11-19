@@ -1,5 +1,5 @@
 diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
-index 1b30468..b5d8b82 100644
+index 1b30468..80e0d77 100644
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
 @@ -64,8 +64,8 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
@@ -148,7 +148,7 @@ index 1b30468..b5d8b82 100644
  
  	/*
  	 * Initialize l2 page table pages :
-@@ -2442,11 +2535,14 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2442,13 +2535,66 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  #endif /* CONFIG_CPU_COUNTERS */
  
  	arm_set_user_tbi();
@@ -160,6 +160,59 @@ index 1b30468..b5d8b82 100644
  	unicorn_stage_vm(12, 0xFF7F00FF); /* arm_vm_physmap_init returned */
  	unicorn_stage_vm(10, 0xFFFF00FF); /* bootstrap tables built, about to switch */
 +	unicorn_ttbr_probe();
++	unicorn_stage_vm(8, 0xFFFF8000); /* C7: pre-switch marker, overwrites slot 8 blue with orange */
  	set_mmu_ttb_alternate(cpu_ttep & TTBR_BADDR_MASK);
- 	unicorn_stage_vm(13, 0xFFFF00A5); /* TTBR1 installed */
+-	unicorn_stage_vm(13, 0xFFFF00A5); /* TTBR1 installed */
++
++	/*
++	 * C7 verdict block.  The old slot 13 paint used the raw physical
++	 * framebuffer address, which is unmapped once TTBR1 switches to the
++	 * bootstrap tables -- it aborted and killed the kernel right after
++	 * every switch.  Post-switch access must go through phystokv().
++	 *
++	 * Signals:
++	 *   slot 8 orange  = reached the switch (pre-switch marker)
++	 *   slot 9 red     = switch survived and post-switch code ran
++	 *   device reboots = PSCI SYSTEM_RESET fired; switch survived for sure
++	 */
++	{
++		volatile unsigned int *fbv =
++		    (volatile unsigned int *)(unsigned long)phystokv(0xB8000000UL);
++		unsigned int stride = 5760u / 4u;
++		unsigned int y = 240u + 9u * 80u; /* overwrite slot 9 green with red */
++		unsigned int dy, dx;
++		for (dy = 0u; dy < 72u; dy++) {
++			for (dx = 0u; dx < 72u; dx++) {
++				fbv[(y + dy) * stride + 64u + dx] = 0xFFFF0000u;
++			}
++		}
++		__asm__ volatile ("dsb sy" ::: "memory");
++
++		/* hold ~6s so the display scans the red frame out */
++		{
++			unsigned long freq, t0, t;
++			__asm__ volatile ("mrs %0, cntfrq_el0" : "=r" (freq));
++			__asm__ volatile ("mrs %0, cntvct_el0" : "=r" (t0));
++			do {
++				__asm__ volatile ("mrs %0, cntvct_el0" : "=r" (t));
++			} while ((t - t0) < freq * 6u);
++		}
++
++		/* PSCI SYSTEM_RESET (arm,psci-1.0, method="smc"): reboot to
++		 * Android proves the TTBR1 switch and post-switch code lived. */
++		{
++			register unsigned long x0 __asm__("x0") = 0x84000009UL;
++			register unsigned long x1 __asm__("x1") = 0;
++			register unsigned long x2 __asm__("x2") = 0;
++			register unsigned long x3 __asm__("x3") = 0;
++			__asm__ volatile ("smc #0" : "+r" (x0)
++			    : "r" (x1), "r" (x2), "r" (x3)
++			    : "memory", "cc");
++		}
++		for (;;) {
++			__asm__ volatile ("wfi");
++		}
++	}
  
+ #if XNU_MONITOR
+ 	ml_enable_monitor();
