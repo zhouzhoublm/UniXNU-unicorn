@@ -169,41 +169,55 @@ index 1b30468..db3b5e7 100644
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -679,36 +679,42 @@ arm_init(
-
+@@ -690,68 +690,77 @@ arm_init(
+ 		(void)switch_to_serial_console(); /* Switch into serial mode from video console */
+ 		disableConsoleOutput = FALSE;     /* Allow printfs to happen */
+ 	}
+ 	PE_create_console();
++	extern void unicorn_stage_phys(unsigned int slot, unsigned int argb);
++	unicorn_stage_phys(16, 0xFF00FFFF); /* console up */
+ 
+ 	/* setup console output */
+ 	PE_init_printf(FALSE);
+ 
+ #if __arm64__
+ #if DEBUG
+ 	dump_kva_space();
+ #endif
+ #endif
+ 
  	cpu_machine_idle_init(TRUE);
-
+ 
  	PE_init_platform(TRUE, &BootCpuData);
- 	unicorn_stage_phys(17, 0xFF00FF7F); /* pong platform expert up */
 +	unicorn_stage_phys(19, 0xFF7F00FF); /* pong platform returned */
-
+ 
  	/* Initialize the debug infrastructure system-wide and on the local core. */
  	pe_arm_debug_init_early(&BootCpuData);
 +	unicorn_stage_phys(20, 0xFF00FFFF); /* debug early init */
-
+ 
  #if __arm64__
  	extern bool cpu_config_correct;
  	if (!cpu_config_correct) {
  		panic("The cpumask=N boot arg cannot be used together with cpus=N, and the boot CPU must be enabled");
  	}
-
+ 
  	ml_map_cpu_pio();
 +	unicorn_stage_phys(21, 0xFF00FF7F); /* cpu PIO mapped */
-
+ 
  #if APPLE_ARM64_ARCH_FAMILY
  	configure_late_apple_regs(true);
  #endif
-
+ 
  #endif
-
+ 
  	cpu_timebase_init(TRUE);
 +	unicorn_stage_phys(22, 0xFFFFFF00); /* timebase init */
-
+ 
  #if KPERF
  	/* kptimer_curcpu_up() must be called after cpu_timebase_init */
  	kptimer_curcpu_up();
  #endif /* KPERF */
-
+ 
  	PE_init_cpu();
 +	unicorn_stage_phys(23, 0xFF7F00FF); /* PE_init_cpu */
  #if __arm64__
@@ -212,3 +226,24 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  #endif
  	fiq_context_init(TRUE);
 +	unicorn_stage_phys(24, 0xFFFF00FF); /* fiq context init */
+ 
+ 
+ #if HIBERNATION
+ 	pal_hib_init();
+ #endif /* HIBERNATION */
+ 
+ 	/*
+ 	 * Initialize the stack protector for all future calls
+ 	 * to C code. Since kernel_bootstrap() eventually
+ 	 * switches stack context without returning through this
+ 	 * function, we do not risk failing the check even though
+ 	 * we mutate the guard word during execution.
+ 	 */
+ 	__stack_chk_guard = (unsigned long)early_random();
+ 	/* Zero a byte of the protector to guard
+ 	 * against string vulnerabilities
+ 	 */
+ 	__stack_chk_guard &= ~(0xFFULL << 8);
++	unicorn_stage_phys(18, 0xFFFFFF00); /* about to run machine_startup */
+ 	machine_startup(args);
+ }
