@@ -1,0 +1,33 @@
+diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
+index 1b30468..82b7092 100644
+--- a/osfmk/arm64/arm_vm_init.c
++++ b/osfmk/arm64/arm_vm_init.c
+@@ -2574,6 +2574,28 @@
+ 		    | ARM_TTE_BLOCK_AP(AP_RWNA) | ARM_TTE_BLOCK_ATTRINDX(CACHE_ATTRINDX_DISABLE);
+ 	}
+ 
++	/*
++	 * C34: pre-map the early io_map region.  pmap_bootstrap() seeds
++	 * virtual_space_start at dynamic_memory_begin, and io_map() hands
++	 * VAs out of that range before Mach VM is up (the UART probe, the
++	 * DT pram panic log, the verbose-console frame buffer).  None of
++	 * it is covered by the bootstrap tables, so every one of those
++	 * consumers aborted on first access (C30 chunk 0x0A, C32 0x3A,
++	 * C33 0x58).  Establish L2 directories plus identity PTEs
++	 * (PA = VA - gVirtBase) for 256 MiB starting at dynamic_memory_begin:
++	 * pmap_pte() then finds a ptep in pmap_map_bd() and overwrites these
++	 * placeholders with the real device PTEs once kernel_pmap is live.
++	 */
++	vm_offset_t unicorn_io_va = (dynamic_memory_begin + ARM_TT_L2_OFFMASK) & ~ARM_TT_L2_OFFMASK;
++	init_ptpages(cpu_tte, unicorn_io_va, unicorn_io_va + 128 * ARM_TT_L2_SIZE, FALSE,
++	    ARM_DYNAMIC_TABLE_XN | ARM_TTE_TABLE_AP(ARM_TTE_TABLE_AP_USER_NA));
++	for (unsigned long i = 0; i < 128; i++) {
++		tt_entry_t *tte3 = arm_kva_to_tte(unicorn_io_va + i * ARM_TT_L2_SIZE);
++		*tte3 = (((unicorn_io_va + i * ARM_TT_L2_SIZE) - gVirtBase) & ARM_TTE_BLOCK_L2_MASK)
++		    | ARM_TTE_TYPE_BLOCK | ARM_TTE_VALID | ARM_TTE_BLOCK_AF | ARM_TTE_BLOCK_PNX
++		    | ARM_TTE_BLOCK_AP(AP_RWNA) | ARM_TTE_BLOCK_ATTRINDX(CACHE_ATTRINDX_DISABLE);
++	}
++
+ 	arm_vm_physmap_init(args);
+ 	unicorn_stage_vm(12, 0xFF7F00FF); /* arm_vm_physmap_init returned */
+ 	unicorn_stage_vm(10, 0xFFFF00FF); /* bootstrap tables built, about to switch */
