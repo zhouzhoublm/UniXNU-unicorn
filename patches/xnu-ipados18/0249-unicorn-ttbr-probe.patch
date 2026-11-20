@@ -272,8 +272,9 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 +	unicorn_stage_phys(28, 0xFF8000FF); /* consistent debug inherit */
  
  	/* Setup debugging output. */
- 	const unsigned int serial_exists = serial_init();
-+	unicorn_stage_phys(29, 0xFF0080FF); /* serial init */
+-	const unsigned int serial_exists = serial_init();
++	const unsigned int serial_exists = 0; /* C31: UART probe faults (EC 0x25, chunk 10) -- serial console unused */
++	unicorn_stage_phys(29, 0xFF0080FF); /* serial init skipped */
  	kernel_startup_initialize_upto(STARTUP_SUB_KPRINTF);
 +	unicorn_stage_phys(30, 0xFFFFFFFF); /* startup upto KPRINTF */
  	kprintf("kprintf initialized\n");
