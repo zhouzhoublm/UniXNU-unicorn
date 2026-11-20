@@ -86,10 +86,10 @@ index 1b30468..82b7092 100644
 +/*
 + * C30 minimal exception vectors: 16 entries x 0x80 bytes, all sharing one
 + * memory-less stub.  On ANY exception it reads FAR_EL1, waits
-+ * 240s + ((FAR>>24)&0x3f) seconds and fires PSCI SYSTEM_RESET.  With the
++ * 240s + ((FAR>>24)&0xff) seconds and fires PSCI SYSTEM_RESET (C32: 8-bit).  With the
 + * exception class known from C29 (EC=0x25, EL1 data abort), the adb-return
 + * time decodes the faulting VA's 64 MiB block uniquely:
-+ *   chunk = (delay - 240) & 0x3f
++ *   chunk = (delay - 240) & 0xff   [max 495s wait; watcher window 15 min]
 + * No memory access at all: safe in any MMU state, including mid-wedge.
 + */
 +extern char unicorn_mini_vectors[];
@@ -102,7 +102,7 @@ index 1b30468..82b7092 100644
 +    ".rept 16\n"
 +    "  msr daifset, #0xf\n"
 +    "  mrs x0, far_el1\n"
-+    "  ubfx x0, x0, #24, #6\n"
++    "  ubfx x0, x0, #24, #8\n"
 +    "  movz w3, #240\n"
 +    "  add x3, x3, x0\n"
 +    "  mrs x2, cntfrq_el0\n"
