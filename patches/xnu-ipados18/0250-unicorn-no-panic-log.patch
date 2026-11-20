@@ -1,0 +1,19 @@
+diff --git a/pexpert/arm/pe_init.c b/pexpert/arm/pe_init.c
+index e3d2ee7..e2ee0ca 100644
+--- a/pexpert/arm/pe_init.c
++++ b/pexpert/arm/pe_init.c
+@@ -111,6 +111,14 @@ void PE_slide_devicetree(vm_offset_t);
+ static void
+ check_for_panic_log(void)
+ {
++#if defined(PONG)
++	/* Unicorn (Xiaomi 12S Pro): the DT "pram" panic region is a Nothing
++	 * Phone (2) carveout that this board does not have.  ml_io_map_wcomb()
++	 * of its address returns a VA the bootstrap page tables do not map,
++	 * and the header read aborts (C32: FAR byte 0x3A).  Skip the probe;
++	 * the persistent panic log is not needed to boot. */
++	return;
++#endif
+ #if defined(PLATFORM_PANIC_LOG_PADDR) && !(defined(XNU_DT_PANIC_REGION) && XNU_DT_PANIC_REGION)
+ 	gPanicBase = ml_io_map_wcomb(PLATFORM_PANIC_LOG_PADDR, PLATFORM_PANIC_LOG_SIZE);
+ 	panic_text_len = PLATFORM_PANIC_LOG_SIZE - sizeof(struct embedded_panic_header);
