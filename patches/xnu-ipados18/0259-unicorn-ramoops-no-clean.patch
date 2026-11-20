@@ -1,0 +1,18 @@
+diff --git a/osfmk/arm64/pong_ramoops_console.h b/osfmk/arm64/pong_ramoops_console.h
+index 0000000..1111111 100644
+--- a/osfmk/arm64/pong_ramoops_console.h
++++ b/osfmk/arm64/pong_ramoops_console.h
+@@ -3,4 +3,10 @@
+ #include <arm/caches_internal.h>
+ #include <machine/machine_routines.h>
+ 
++#if defined(PONG)
++/* The mirror maps write-combining (uncached): stores reach DRAM directly and
++ * no cache maintenance is needed. The real CleanPoC path takes scheduler/
++ * HID state that is not up this early and wedges (C43). Neutralize it. */
++#define CleanPoC_DcacheRegion_Force(addr, size) do { } while (0)
++#endif
++
+ #define PONG_RAMOOPS_PHYS_BASE 0xA7000000ULL /* C36: Xiaomi 12S Pro DT reserved ramoops@0xa7000000 */
+
+
