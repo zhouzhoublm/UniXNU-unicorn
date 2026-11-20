@@ -1,5 +1,5 @@
 diff --git a/osfmk/arm64/arm_vm_init.c b/osfmk/arm64/arm_vm_init.c
-index 1b30468..070d502 100644
+index 1b30468..1dd7349 100644
 --- a/osfmk/arm64/arm_vm_init.c
 +++ b/osfmk/arm64/arm_vm_init.c
 @@ -64,8 +64,8 @@ unicorn_stage_vm(unsigned int slot, unsigned int argb)
@@ -204,16 +204,26 @@ index 1b30468..070d502 100644
  
  #if XNU_MONITOR
  	ml_enable_monitor();
-@@ -2458,6 +2592,8 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2458,6 +2592,18 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  
  	flush_mmu_tlb();
  	kva_active = TRUE;
 +	unicorn_stage_phys(14, 0xFF00FFFF); /* identity retired, physmap world */
 +
++	/*
++	 * C28: install the memory-less exception vectors HERE (C22b proved
++	 * an exception fires in the arm_vm_init-tail..arm_init-console
++	 * window; the C23/C24 install at post-slot-17 missed it).  Any abort
++	 * from here on reports ESR class + FAR chunk via the PSCI timing
++	 * channel (240s + 4s*EC + (FAR>>24)&0x3f) instead of hanging.
++	 */
++	__asm__ volatile ("msr vbar_el1, %0" :: "r" ((unsigned long)unicorn_mini_vectors) : "memory");
++	__asm__ volatile ("isb sy" ::: "memory");
++
  	// global table pointers may need to be different due to physical aperture remapping
  	cpu_tte = (tt_entry_t*)(phystokv(cpu_ttep));
  	invalid_tte = (tt_entry_t*)(phystokv(invalid_ttep));
-@@ -2679,6 +2815,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
+@@ -2679,6 +2825,7 @@ arm_vm_init(uint64_t memory_size, boot_args * args)
  #endif
  	first_avail = avail_start;
  	patch_low_glo_static_region(args->topOfKernelData, avail_start - args->topOfKernelData);
@@ -224,10 +234,11 @@ index 1b30468..070d502 100644
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
-@@ -99,6 +99,14 @@
+@@ -99,6 +99,15 @@
  extern int      serial_init(void);
  extern void sleep_token_buffer_init(void);
  
++
 +#if defined(PONG) && !(defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE)
 +/* The persistent console mirror is disabled on this board: its carveout
 + * address is a Nothing Phone (2) DT reserve that the Xiaomi 12S Pro does
@@ -239,7 +250,7 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  extern vm_offset_t intstack_top;
  #if __arm64__
  extern vm_offset_t excepstack_top;
-@@ -602,13 +610,17 @@
+@@ -602,13 +611,17 @@
  
  	unicorn_stage(7, 0xFF8000FF); /* about to call arm_vm_init */
  	arm_vm_init(xmaxmem, args);
@@ -257,7 +268,7 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  	}
  
  #if __arm64__ && WITH_CLASSIC_S2R
-@@ -616,11 +628,15 @@
+@@ -616,11 +629,15 @@
  #endif
  
  	PE_consistent_debug_inherit();
@@ -273,7 +284,7 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  #if defined(PONG)
      printf("Pong RAM: %u owned banks, %llu MiB managed before kernel reservations, 4 KiB pages\n",
          pong_ram_range_count, pong_ram_bytes >> 20);
-@@ -665,6 +681,7 @@
+@@ -665,6 +682,7 @@
  		disableConsoleOutput = FALSE;     /* Allow printfs to happen */
  	}
  	PE_create_console();
@@ -281,15 +292,11 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  
  	/* setup console output */
  	PE_init_printf(FALSE);
-@@ -678,9 +695,15 @@
+@@ -678,9 +696,11 @@
  	cpu_machine_idle_init(TRUE);
  
  	PE_init_platform(TRUE, &BootCpuData);
 +	unicorn_stage_phys(17, 0xFF00FF7F); /* pong platform returned */
-+
-+	extern char unicorn_mini_vectors[];
-+	__asm__ volatile ("msr vbar_el1, %0" :: "r" ((unsigned long)unicorn_mini_vectors) : "memory");
-+	__asm__ volatile ("isb sy" ::: "memory");
  
  	/* Initialize the debug infrastructure system-wide and on the local core. */
  	pe_arm_debug_init_early(&BootCpuData);
@@ -297,7 +304,7 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  
  #if __arm64__
  	extern bool cpu_config_correct;
-@@ -689,6 +712,7 @@
+@@ -689,6 +709,7 @@
  	}
  
  	ml_map_cpu_pio();
@@ -305,7 +312,7 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  
  #if APPLE_ARM64_ARCH_FAMILY
  	configure_late_apple_regs(true);
-@@ -697,6 +721,7 @@
+@@ -697,6 +718,7 @@
  #endif
  
  	cpu_timebase_init(TRUE);
@@ -313,7 +320,7 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  
  #if KPERF
  	/* kptimer_curcpu_up() must be called after cpu_timebase_init */
-@@ -704,11 +729,13 @@
+@@ -704,11 +726,13 @@
  #endif /* KPERF */
  
  	PE_init_cpu();
@@ -327,12 +334,12 @@ diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
  
  
  #if HIBERNATION
-@@ -727,6 +754,29 @@
+@@ -727,6 +751,29 @@
  	 * against string vulnerabilities
  	 */
  	__stack_chk_guard &= ~(0xFFULL << 8);
-+	unicorn_stage_phys(18, 0xFFFFFF00); /* about to run machine_startup */
 +
++	unicorn_stage_phys(18, 0xFFFFFF00); /* about to run machine_startup */
 +	{
 +		unsigned long freq, t0, t;
 +		__asm__ volatile ("mrs %0, cntfrq_el0" : "=r" (freq));
