@@ -1,0 +1,28 @@
+diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
+index 0000000..1111111 100644
+--- a/osfmk/kern/startup.c
++++ b/osfmk/kern/startup.c
+@@ -294,6 +294,12 @@
+ void
+ kernel_startup_tunable_init(const struct startup_tunable_spec *spec)
+ {
++#if defined(PONG)
++	/* C42: the TUNABLES chain wedges inside PE_parse_boot_argn on the
++	 * Xiaomi 12S Pro (C39: the fifth tunable never returns). Skip all
++	 * tunable overrides; compiled defaults apply. */
++	return;
++#endif
+ 	if (spec->var_is_str) {
+ 		PE_parse_boot_arg_str(spec->name, spec->var_addr, spec->var_len);
+ 	} else if (PE_parse_boot_argn(spec->name, spec->var_addr, spec->var_len)) {
+@@ -308,6 +314,10 @@
+ void
+ kernel_startup_tunable_dt_source_init(const struct startup_tunable_dt_source_spec *spec)
+ {
++#if defined(PONG)
++	/* C42: same wedge family -- no DT-sourced tunables on this board. */
++	return;
++#endif
+ 	DTEntry base;
+ 
+ 	*spec->source_addr = STARTUP_SOURCE_DEFAULT;
