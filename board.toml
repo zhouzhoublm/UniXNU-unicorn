@@ -132,7 +132,6 @@ kernel_args = [
   "keepsyms=1",
   "-v",
   "cpus=1",
-  "maxmem=2000",
   "pong_allow_unauthenticated_root=1",
   "cs_enforcement_disable=1",
   "cs_library_val_enable=0",
