@@ -37,7 +37,7 @@ jobs:
       - name: build physmem module
         run: |
           mkdir -p /tmp/modbuild
-          cp memdump/physmem.c memdump/Makefile /tmp/modbuild/
+          cp "$GITHUB_WORKSPACE/memdump/physmem.c" "$GITHUB_WORKSPACE/memdump/Makefile" /tmp/modbuild/
           cd ksrc
           touch .scmversion 2>/dev/null || true
           make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 M=/tmp/modbuild modules -j$(nproc) || make ARCH=arm64 LLVM=1 M=/tmp/modbuild modules -j1
