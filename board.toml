@@ -131,6 +131,7 @@ timeout = 15
 kernel_args = [
   "keepsyms=1",
   "-v",
+  "maxmem=2000",
   "cpus=1",
   "pong_allow_unauthenticated_root=1",
   "cs_enforcement_disable=1",
