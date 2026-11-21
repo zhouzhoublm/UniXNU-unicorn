@@ -55,8 +55,9 @@ jobs:
           assert i >= 0, 'no vermagic'
           j = ko.find(b'\x00', i)
           old_len = j - i
-          new = b'vermagic=' + tgt[:len(old)-9].ljust(len(old)-9, b' ') + b'\x00'
-          ko[i:j+1] = new
+          payload = tgt[:old_len-9].ljust(old_len-9, b' ')
+          ko[i:j+1] = b'vermagic=' + payload + b'\x00'
+          print('patched vermagic len', old_len)
           pathlib.Path(sys.argv[1]).write_bytes(bytes(ko))
           print('vermagic patched')
           PY
