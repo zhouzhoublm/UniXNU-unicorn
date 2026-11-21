@@ -11,65 +11,56 @@ jobs:
 
       - name: clone android12-5.10 kernel (shallow)
         run: |
-          git clone --depth 1 --branch android12-5.10-2023-02 \
-            https://android.googlesource.com/kernel/common ksrc || \
           git clone --depth 1 --branch android12-5.10 \
             https://android.googlesource.com/kernel/common ksrc
           cd ksrc && git log --oneline -1
 
-      - name: install llvm toolchain (r416183b)
+      - name: install toolchain (llvm-12 + deps)
         run: |
-          curl -sL -o tc.tar.gz \
-            https://dl.google.com/android/repository/toolchain/llvm/prebuilt/linux-x86_64/clang-r416183b.tar.gz || true
-          # fallback: debian clang-12 from apt is ABI-compatible for module builds
           sudo apt-get update -qq
-          sudo apt-get install -y -qq clang-12 lld-12 libelf-dev bc flex bison
-          echo "CC=clang-12" >> $GITHUB_ENV
+          sudo apt-get install -y -qq clang-12 lld-12 llvm-12 libelf-dev bc flex bison
+          for t in clang ld.lld llvm-ar llvm-nm llvm-objcopy llvm-objdump llvm-strip llvm-readelf; do
+            sudo ln -sf /usr/bin/$t-12 /usr/local/bin/$t
+          done
+          clang --version | head -1
 
       - name: prepare kernel tree (gki_defconfig)
         run: |
           cd ksrc
-          make ARCH=arm64 CC=clang-12 LD=ld.lld-12 gki_defconfig
-          # match the device kernel: 39-bit VA, 4K pages, no KASAN
-          ./scripts/config --enable CONFIG_ARM64_VA_BITS_39 \
-            --disable CONFIG_ARM64_VA_BITS_48 \
-            --set-val CONFIG_ARM64_PAGE_SHIFT 12 \
-            --disable CONFIG_KASAN \
+          make ARCH=arm64 LLVM=1 LLVM_IAS=1 gki_defconfig
+          ./scripts/config --disable CONFIG_KASAN \
             --disable CONFIG_MODULE_COMPRESS_GZIP \
+            --disable CONFIG_MODULE_SIG_ALL \
             --enable CONFIG_DEVMEM
-          make ARCH=arm64 CC=clang-12 LD=ld.lld-12 prepare modules_prepare -j$(nproc)
+          make ARCH=arm64 LLVM=1 LLVM_IAS=1 prepare modules_prepare -j$(nproc)
 
       - name: build physmem module
         run: |
-          cp memdump/physmem.c memdump/Makefile ksrc/drivers/misc/ 2>/dev/null || true
+          mkdir -p /tmp/modbuild
+          cp memdump/physmem.c memdump/Makefile /tmp/modbuild/
           cd ksrc
-          echo "obj-m += physmem.o" >> drivers/misc/Makefile 2>/dev/null || true
-          make ARCH=arm64 CC=clang-12 LD=ld.lld-12 M=drivers/misc modules -j$(nproc) || \
-          (mkdir -p /tmp/modbuild && cp ../memdump/physmem.c ../memdump/Makefile /tmp/modbuild/ && \
-           make ARCH=arm64 CC=clang-12 LD=ld.lld-12 M=/tmp/modbuild modules -j$(nproc))
-          find . /tmp/modbuild -name "physmem.ko" 2>/dev/null
+          touch .scmversion 2>/dev/null || true
+          make ARCH=arm64 LLVM=1 LLVM_IAS=1 M=/tmp/modbuild modules -j$(nproc) || make ARCH=arm64 LLVM=1 M=/tmp/modbuild modules -j1
+          ls -la /tmp/modbuild/*.ko
 
       - name: fix vermagic to match device kernel
         run: |
-          KO=$(find . /tmp/modbuild -name "physmem.ko" | head -1)
-          TARGET="5.10.136-android12-9-00021-g821df8f5bd36"
+          KO=/tmp/modbuild/physmem.ko
+          TARGET="5.10.136-android12-9-00021-g821df8f5bd36-ab9585204"
           python3 - "$KO" "$TARGET" <<'PY'
           import sys, pathlib
-          ko = pathlib.Path(sys.argv[1]).read_bytes()
+          ko = bytearray(pathlib.Path(sys.argv[1]).read_bytes())
           tgt = sys.argv[2].encode()
-          # replace the vermagic string inside .modinfo; pad to original length
           i = ko.find(b'vermagic=')
-          if i < 0:
-              sys.exit('no vermagic found')
+          assert i >= 0, 'no vermagic'
           j = ko.find(b'\x00', i)
-          old = ko[i:j]
+          old_len = j - i
           new = b'vermagic=' + tgt[:len(old)-9].ljust(len(old)-9, b' ') + b'\x00'
-          ko = ko[:i] + new + ko[j:]
-          pathlib.Path(sys.argv[1]).write_bytes(ko)
-          print('vermagic patched to', tgt)
+          ko[i:j+1] = new
+          pathlib.Path(sys.argv[1]).write_bytes(bytes(ko))
+          print('vermagic patched')
           PY
-          mkdir -p out
-          cp "$KO" out/physmem.ko
+          mkdir -p out && cp "$KO" out/physmem.ko
 
       - name: upload module
         uses: actions/upload-artifact@v4
