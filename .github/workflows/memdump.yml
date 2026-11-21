@@ -27,12 +27,12 @@ jobs:
       - name: prepare kernel tree (gki_defconfig)
         run: |
           cd ksrc
-          make ARCH=arm64 LLVM=1 LLVM_IAS=1 gki_defconfig
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 gki_defconfig
           ./scripts/config --disable CONFIG_KASAN \
             --disable CONFIG_MODULE_COMPRESS_GZIP \
             --disable CONFIG_MODULE_SIG_ALL \
             --enable CONFIG_DEVMEM
-          make ARCH=arm64 LLVM=1 LLVM_IAS=1 prepare modules_prepare -j$(nproc)
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 prepare modules_prepare -j$(nproc)
 
       - name: build physmem module
         run: |
@@ -40,7 +40,7 @@ jobs:
           cp memdump/physmem.c memdump/Makefile /tmp/modbuild/
           cd ksrc
           touch .scmversion 2>/dev/null || true
-          make ARCH=arm64 LLVM=1 LLVM_IAS=1 M=/tmp/modbuild modules -j$(nproc) || make ARCH=arm64 LLVM=1 M=/tmp/modbuild modules -j1
+          make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- LLVM=1 LLVM_IAS=1 M=/tmp/modbuild modules -j$(nproc) || make ARCH=arm64 LLVM=1 M=/tmp/modbuild modules -j1
           ls -la /tmp/modbuild/*.ko
 
       - name: fix vermagic to match device kernel
