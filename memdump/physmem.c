@@ -8,7 +8,7 @@
 #include <linux/uaccess.h>
 
 static unsigned long phys = 0x808e4000UL;
-static unsigned long size = 0x8000UL;
+static unsigned long size = 0x10000UL;
 module_param(phys, ulong, 0);
 module_param(size, ulong, 0);
 
@@ -29,6 +29,8 @@ static int __init physmem_init(void)
 	pr_info("physmem: dump of 0x%lx..0x%lx (%lu bytes)\n", phys, phys + size, size);
 	for (i = 0; i + 16 <= size; i += 16) {
 		const volatile u32 *w = (const volatile u32 *)(p + i);
+		if (w[0] == 0xffffffff && w[1] == 0xffffffff && w[2] == 0xffffffff && w[3] == 0xffffffff)
+			continue;	/* skip all-FF bitmap rows */
 		pr_info("physmem %08lx: %08x %08x %08x %08x\n",
 			phys + i, w[0], w[1], w[2], w[3]);
 	}
