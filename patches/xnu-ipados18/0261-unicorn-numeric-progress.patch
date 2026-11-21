@@ -1,5 +1,5 @@
 diff --git a/osfmk/arm/arm_init.c b/osfmk/arm/arm_init.c
-index bddea2a..1fbb168 100644
+index bddea2a..335b9e4 100644
 --- a/osfmk/arm/arm_init.c
 +++ b/osfmk/arm/arm_init.c
 @@ -613,11 +613,19 @@ arm_init(
@@ -7,8 +7,8 @@ index bddea2a..1fbb168 100644
  	extern void unicorn_stage_phys(unsigned int slot, unsigned int argb);
  	unicorn_stage_phys(25, 0xFF00A5FF); /* arm_vm_init returned */
 +	{	/* C48 numeric progress */
-+		extern vm_offset_t phystokv(pmap_paddr_t);
-+		*(volatile uint32_t *)(unsigned long)(phystokv(0x808e8000UL) + 4u * 25u) = 0xC4000000u | 25u;
++		/* phystokv() is declared by <machine/pmap.h>; vm_map_address_t is 64-bit */
++		*(volatile uint32_t *)(unsigned long)(phystokv(0x808e8000ULL) + 4u * 25u) = 0xC4000000u | 25u;
 +	}
  
  #if defined(PONG) && defined(XNU_PONG_RAMOOPS_CONSOLE) && XNU_PONG_RAMOOPS_CONSOLE
@@ -16,8 +16,8 @@ index bddea2a..1fbb168 100644
  #endif
  	unicorn_stage_phys(26, 0xFFA5FF00); /* past pong ramoops (disabled on this board) */
 +	{	/* C48 numeric progress */
-+		extern vm_offset_t phystokv(pmap_paddr_t);
-+		*(volatile uint32_t *)(unsigned long)(phystokv(0x808e8000UL) + 4u * 26u) = 0xC4000000u | 26u;
++		/* phystokv() is declared by <machine/pmap.h>; vm_map_address_t is 64-bit */
++		*(volatile uint32_t *)(unsigned long)(phystokv(0x808e8000ULL) + 4u * 26u) = 0xC4000000u | 26u;
 +	}
  
  	if (debug_boot_arg) {
@@ -27,43 +27,42 @@ index bddea2a..1fbb168 100644
  	PE_consistent_debug_inherit();
  	unicorn_stage_phys(28, 0xFF8000FF); /* consistent debug inherit */
 +	{	/* C48 numeric progress */
-+		extern vm_offset_t phystokv(pmap_paddr_t);
-+		*(volatile uint32_t *)(unsigned long)(phystokv(0x808e8000UL) + 4u * 28u) = 0xC4000000u | 28u;
++		/* phystokv() is declared by <machine/pmap.h>; vm_map_address_t is 64-bit */
++		*(volatile uint32_t *)(unsigned long)(phystokv(0x808e8000ULL) + 4u * 28u) = 0xC4000000u | 28u;
 +	}
  
  	/* Setup debugging output. */
  	const unsigned int serial_exists = 0; /* C31: UART probe faults (EC 0x25, chunk 10) -- serial console unused */
  	unicorn_stage_phys(29, 0xFF0080FF); /* serial init skipped */
 +	{	/* C48 numeric progress */
-+		extern vm_offset_t phystokv(pmap_paddr_t);
-+		*(volatile uint32_t *)(unsigned long)(phystokv(0x808e8000UL) + 4u * 29u) = 0xC4000000u | 29u;
++		/* phystokv() is declared by <machine/pmap.h>; vm_map_address_t is 64-bit */
++		*(volatile uint32_t *)(unsigned long)(phystokv(0x808e8000ULL) + 4u * 29u) = 0xC4000000u | 29u;
 +	}
  	kernel_startup_initialize_upto(STARTUP_SUB_KPRINTF);
  	unicorn_stage_phys(30, 0xFFFFFFFF); /* startup upto KPRINTF */
 +	{	/* C48 numeric progress */
-+		extern vm_offset_t phystokv(pmap_paddr_t);
-+		*(volatile uint32_t *)(unsigned long)(phystokv(0x808e8000UL) + 4u * 30u) = 0xC4000000u | 30u;
++		/* phystokv() is declared by <machine/pmap.h>; vm_map_address_t is 64-bit */
++		*(volatile uint32_t *)(unsigned long)(phystokv(0x808e8000ULL) + 4u * 30u) = 0xC4000000u | 30u;
 +	}
  	kprintf("kprintf initialized\n");
  	unicorn_stage_phys(31, 0xFFFF0000); /* kprintf survived - console writes work! */
 +	{	/* C48 numeric progress */
-+		extern vm_offset_t phystokv(pmap_paddr_t);
-+		*(volatile uint32_t *)(unsigned long)(phystokv(0x808e8000UL) + 4u * 31u) = 0xC4000000u | 31u;
++		/* phystokv() is declared by <machine/pmap.h>; vm_map_address_t is 64-bit */
++		*(volatile uint32_t *)(unsigned long)(phystokv(0x808e8000ULL) + 4u * 31u) = 0xC4000000u | 31u;
 +	}
  #if defined(PONG)
      printf("Pong RAM: %u owned banks, %llu MiB managed before kernel reservations, 4 KiB pages\n",
          pong_ram_range_count, pong_ram_bytes >> 20);
 diff --git a/osfmk/kern/startup.c b/osfmk/kern/startup.c
-index b90dfb1..e86e29f 100644
+index b90dfb1..890d9ec 100644
 --- a/osfmk/kern/startup.c
 +++ b/osfmk/kern/startup.c
-@@ -488,6 +488,12 @@ kernel_startup_initialize_upto(startup_subsystem_id_t upto)
+@@ -488,6 +488,11 @@ kernel_startup_initialize_upto(startup_subsystem_id_t upto)
  			extern void unicorn_stage_phys(unsigned int, unsigned int);
  			unicorn_stage_phys(unicorn_startup_row,
  			    (unicorn_startup_idx & 1) ? 0xFFFFFFFFu : 0xFF00FFFFu);
 +			{	/* C48: numeric progress into the uefi_log progress page */
-+				extern vm_offset_t phystokv(pmap_paddr_t);
-+				volatile uint32_t *up = (volatile uint32_t *)(unsigned long)phystokv(0x808e8000UL);
++				volatile uint32_t *up = (volatile uint32_t *)(unsigned long)phystokv(0x808e8000ULL);
 +				up[unicorn_startup_idx & 63] = 0xC4000000u | unicorn_startup_idx;
 +				up[0] = 0xC4000000u | unicorn_startup_idx;
 +			}
