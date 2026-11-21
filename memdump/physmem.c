@@ -7,8 +7,8 @@
 #include <linux/io.h>
 #include <linux/uaccess.h>
 
-static unsigned long phys = 0x808e4000UL;
-static unsigned long size = 0x10000UL;
+static unsigned long phys = 0x808e8000UL;
+static unsigned long size = 0x100UL;
 module_param(phys, ulong, 0);
 module_param(size, ulong, 0);
 
